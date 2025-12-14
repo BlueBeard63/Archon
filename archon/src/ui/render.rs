@@ -65,6 +65,9 @@ fn render_main_content(frame: &mut Frame, area: ratatui::layout::Rect, state: &A
 
     match &state.current_screen {
         Screen::Dashboard => screens::dashboard::render(frame, area, state),
+        Screen::SitesList => screens::sites::list::render(frame, area, state),
+        Screen::DomainsList => screens::domains::list::render(frame, area, state),
+        Screen::NodesList => screens::nodes::list::render(frame, area, state),
         Screen::Help => screens::help::render(frame, area),
 
         // For screens not yet implemented, show placeholder

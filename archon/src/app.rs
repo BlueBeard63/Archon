@@ -13,7 +13,7 @@ use crate::state::{
     AppState, AsyncOperation, AsyncOperationResult, AsyncStatus, NotificationLevel,
     OperationType,
 };
-use crate::ui::render;
+use crate::ui::{render, Screen};
 
 pub struct App {
     pub state: AppState,
@@ -313,6 +313,58 @@ impl App {
                     self.state.save()?;
                 }
                 self.state.should_quit = true;
+            }
+
+            // Selection navigation
+            Action::SelectNext => {
+                match self.state.current_screen {
+                    Screen::SitesList => {
+                        if !self.state.sites.is_empty() {
+                            self.state.selection_state.sites_list_index =
+                                (self.state.selection_state.sites_list_index + 1) % self.state.sites.len();
+                        }
+                    }
+                    Screen::DomainsList => {
+                        if !self.state.domains.is_empty() {
+                            self.state.selection_state.domains_list_index =
+                                (self.state.selection_state.domains_list_index + 1) % self.state.domains.len();
+                        }
+                    }
+                    Screen::NodesList => {
+                        if !self.state.nodes.is_empty() {
+                            self.state.selection_state.nodes_list_index =
+                                (self.state.selection_state.nodes_list_index + 1) % self.state.nodes.len();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            Action::SelectPrevious => {
+                match self.state.current_screen {
+                    Screen::SitesList => {
+                        if !self.state.sites.is_empty() {
+                            let len = self.state.sites.len();
+                            self.state.selection_state.sites_list_index =
+                                (self.state.selection_state.sites_list_index + len - 1) % len;
+                        }
+                    }
+                    Screen::DomainsList => {
+                        if !self.state.domains.is_empty() {
+                            let len = self.state.domains.len();
+                            self.state.selection_state.domains_list_index =
+                                (self.state.selection_state.domains_list_index + len - 1) % len;
+                        }
+                    }
+                    Screen::NodesList => {
+                        if !self.state.nodes.is_empty() {
+                            let len = self.state.nodes.len();
+                            self.state.selection_state.nodes_list_index =
+                                (self.state.selection_state.nodes_list_index + len - 1) % len;
+                        }
+                    }
+                    _ => {}
+                }
             }
 
             // No-op and unhandled

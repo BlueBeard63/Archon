@@ -50,6 +50,10 @@ fn handle_sites_list_keys(key: KeyEvent) -> Action {
         KeyCode::Up | KeyCode::Char('k') => Action::SelectPrevious,
         KeyCode::Down | KeyCode::Char('j') => Action::SelectNext,
         KeyCode::Char('c') => Action::NavigateTo(Screen::SiteCreate),
+        KeyCode::Char('1') | KeyCode::Char('d') => Action::NavigateTo(Screen::Dashboard),
+        KeyCode::Char('2') | KeyCode::Char('s') => Action::NavigateTo(Screen::SitesList),
+        KeyCode::Char('3') => Action::NavigateTo(Screen::DomainsList),
+        KeyCode::Char('4') | KeyCode::Char('n') => Action::NavigateTo(Screen::NodesList),
         _ => Action::None,
     }
 }
@@ -59,6 +63,10 @@ fn handle_domains_list_keys(key: KeyEvent) -> Action {
         KeyCode::Up | KeyCode::Char('k') => Action::SelectPrevious,
         KeyCode::Down | KeyCode::Char('j') => Action::SelectNext,
         KeyCode::Char('c') => Action::NavigateTo(Screen::DomainCreate),
+        KeyCode::Char('1') | KeyCode::Char('d') => Action::NavigateTo(Screen::Dashboard),
+        KeyCode::Char('2') | KeyCode::Char('s') => Action::NavigateTo(Screen::SitesList),
+        KeyCode::Char('3') => Action::NavigateTo(Screen::DomainsList),
+        KeyCode::Char('4') | KeyCode::Char('n') => Action::NavigateTo(Screen::NodesList),
         _ => Action::None,
     }
 }
@@ -68,6 +76,10 @@ fn handle_nodes_list_keys(key: KeyEvent) -> Action {
         KeyCode::Up | KeyCode::Char('k') => Action::SelectPrevious,
         KeyCode::Down | KeyCode::Char('j') => Action::SelectNext,
         KeyCode::Char('c') => Action::NavigateTo(Screen::NodeCreate),
+        KeyCode::Char('1') | KeyCode::Char('d') => Action::NavigateTo(Screen::Dashboard),
+        KeyCode::Char('2') | KeyCode::Char('s') => Action::NavigateTo(Screen::SitesList),
+        KeyCode::Char('3') => Action::NavigateTo(Screen::DomainsList),
+        KeyCode::Char('4') | KeyCode::Char('n') => Action::NavigateTo(Screen::NodesList),
         _ => Action::None,
     }
 }
