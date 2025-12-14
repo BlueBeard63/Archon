@@ -1,24 +1,40 @@
-use color_eyre::Result;
-use crossterm::event::{self, Event};
-use ratatui::{DefaultTerminal, Frame};
+use anyhow::Result;
+use directories::ProjectDirs;
 
-fn main() -> Result<()> {
-    color_eyre::install()?;
+mod api;
+mod app;
+mod config;
+mod dns;
+mod events;
+mod models;
+mod state;
+mod ui;
+
+use app::App;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Install color-eyre for better error messages
+    color_eyre::install().ok(); // Ignore error if already installed
+
+    // Determine config path
+    let config_path = if let Some(proj_dirs) = ProjectDirs::from("com", "archon", "archon") {
+        proj_dirs.config_dir().join("config.toml")
+    } else {
+        std::env::current_dir()?.join("archon.toml")
+    };
+
+    // Create application
+    let mut app = App::new(config_path)?;
+
+    // Initialize terminal
     let terminal = ratatui::init();
-    let result = run(terminal);
+
+    // Run application
+    let result = app.run(terminal).await;
+
+    // Restore terminal
     ratatui::restore();
+
     result
-}
-
-fn run(mut terminal: DefaultTerminal) -> Result<()> {
-    loop {
-        terminal.draw(render)?;
-        if matches!(event::read()?, Event::Key(_)) {
-            break Ok(());
-        }
-    }
-}
-
-fn render(frame: &mut Frame) {
-    frame.render_widget("hello world", frame.area());
 }
