@@ -1,0 +1,37 @@
+# Archon Node Configuration - Apache with Manual SSL
+
+[server]
+host = "0.0.0.0"
+port = 8080
+
+# IMPORTANT: Set a strong, random API key
+api_key = "CHANGE-ME-TO-A-SECURE-RANDOM-KEY"
+
+data_dir = "/var/lib/archon"
+
+[proxy]
+type = "apache"
+
+# Directory where Apache site configurations are stored
+config_dir = "/etc/apache2/sites-enabled"
+
+# Command to reload Apache after configuration changes
+reload_command = "apache2ctl graceful"
+
+[docker]
+host = "unix:///var/run/docker.sock"
+network = "archon-net"
+
+[ssl]
+# Manual mode requires you to provide certificates when deploying sites
+mode = "manual"
+
+# Directory where SSL certificates will be stored
+cert_dir = "/etc/archon/ssl"
+
+email = ""
+
+[letsencrypt]
+enabled = false
+email = ""
+staging_mode = false

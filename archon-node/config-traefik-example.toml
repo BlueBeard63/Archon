@@ -1,0 +1,38 @@
+# Archon Node Configuration - Traefik with Auto SSL
+
+[server]
+host = "0.0.0.0"
+port = 8080
+
+# IMPORTANT: Set a strong, random API key
+api_key = "CHANGE-ME-TO-A-SECURE-RANDOM-KEY"
+
+data_dir = "/var/lib/archon"
+
+[proxy]
+type = "traefik"
+
+# Traefik uses Docker labels, so no config directory needed
+config_dir = ""
+
+# Traefik reloads automatically, so no reload command needed
+reload_command = ""
+
+[docker]
+host = "unix:///var/run/docker.sock"
+network = "archon-net"
+
+[ssl]
+# Traefik handles SSL automatically via Docker labels
+mode = "traefik-auto"
+
+cert_dir = ""
+
+# Email used in Traefik's Let's Encrypt configuration
+email = "admin@example.com"
+
+[letsencrypt]
+# Traefik handles Let's Encrypt internally
+enabled = false
+email = ""
+staging_mode = false

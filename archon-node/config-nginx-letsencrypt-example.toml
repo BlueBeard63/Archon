@@ -1,0 +1,47 @@
+# Archon Node Configuration - Nginx with Let's Encrypt
+
+[server]
+# Host and port for the node API server
+host = "0.0.0.0"
+port = 8080
+
+# IMPORTANT: Set a strong, random API key
+# Generate one with: openssl rand -hex 32
+api_key = "CHANGE-ME-TO-A-SECURE-RANDOM-KEY"
+
+# Directory where site data will be stored
+data_dir = "/var/lib/archon"
+
+[proxy]
+# Reverse proxy type: nginx, apache, or traefik
+type = "nginx"
+
+# Directory where Nginx site configurations are stored
+config_dir = "/etc/nginx/sites-enabled"
+
+# Command to reload Nginx after configuration changes
+reload_command = "nginx -s reload"
+
+[docker]
+# Docker socket or host
+host = "unix:///var/run/docker.sock"
+
+# Docker network name for Archon containers
+network = "archon-net"
+
+[ssl]
+# SSL mode: manual, letsencrypt, or traefik-auto
+mode = "letsencrypt"
+
+# Directory where SSL certificates are stored
+cert_dir = "/etc/archon/ssl"
+
+# Email for Let's Encrypt notifications
+email = "admin@example.com"
+
+[letsencrypt]
+enabled = true
+# Email for Let's Encrypt certificate notifications
+email = "admin@example.com"
+# Set to true to use Let's Encrypt staging environment for testing
+staging_mode = false
