@@ -1,90 +1,75 @@
 package screens
 
 import (
-	"fmt"
-
-	"github.com/charmbracelet/lipgloss"
 	"github.com/BlueBeard63/archon/internal/state"
-)
-
-// Inline styles to avoid circular import
-var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			MarginBottom(1)
-
-	helpStyle = lipgloss.NewStyle()
-
-	boxStyle = lipgloss.NewStyle().
-			BorderStyle(lipgloss.RoundedBorder()).
-			Padding(1, 2)
+	"github.com/BlueBeard63/archon/internal/ui"
 )
 
 // RenderDashboard renders the main dashboard with 3-column layout
 func RenderDashboard(s *state.AppState) string {
-	title := titleStyle.Render("📊 Dashboard")
+	// TODO: Implement 3-column dashboard layout
+	// Columns: Sites Summary | Nodes Summary | Domains Summary
 
-	// Render summaries
-	leftColumn := renderSitesSummary(s)
-	middleColumn := renderNodesSummary(s)
-	rightColumn := renderDomainsSummary(s)
+	// Example structure:
+	// leftColumn := renderSitesSummary(s)
+	// middleColumn := renderNodesSummary(s)
+	// rightColumn := renderDomainsSummary(s)
+	//
+	// // Join columns horizontally
+	// columns := lipgloss.JoinHorizontal(
+	//     lipgloss.Top,
+	//     leftColumn,
+	//     middleColumn,
+	//     rightColumn,
+	// )
+	//
+	// return columns
 
-	// Join columns horizontally with spacing
-	columns := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		leftColumn,
-		"  ",
-		middleColumn,
-		"  ",
-		rightColumn,
-	)
-
-	help := helpStyle.Render("\nPress 1 or s for Sites • 2 or d for Domains • 3 or n for Nodes • ? for Help • q to Quit")
-
-	return title + "\n\n" + columns + "\n" + help
-}
-
-// renderBox renders content in a box with title
-func renderBox(title, content string) string {
-	titleText := titleStyle.Render(title)
-	return boxStyle.Render(titleText + "\n" + content)
+	return ui.TitleStyle.Render("Dashboard") + "\n\n" +
+		"TODO: Implement dashboard with 3 columns:\n" +
+		"  - Sites summary (total, running, stopped)\n" +
+		"  - Nodes summary (total, online, offline)\n" +
+		"  - Domains summary (total, with/without DNS)\n\n" +
+		ui.HelpStyle.Render("Press 1/s for Sites, 2/d for Domains, 3/n for Nodes")
 }
 
 // renderSitesSummary renders the sites summary box
 func renderSitesSummary(s *state.AppState) string {
-	total := len(s.Sites)
+	// TODO: Implement sites summary
+	// Count sites by status
+	// total := len(s.Sites)
+	// running := 0
+	// stopped := 0
+	// for _, site := range s.Sites {
+	//     if site.Status == models.SiteStatusRunning {
+	//         running++
+	//     } else if site.Status == models.SiteStatusStopped {
+	//         stopped++
+	//     }
+	// }
+	//
+	// content := fmt.Sprintf(
+	//     "Total: %d\nRunning: %d\nStopped: %d",
+	//     total, running, stopped,
+	// )
+	//
+	// return ui.RenderBox("Sites", content)
 
-	content := fmt.Sprintf(
-		"Total Sites: %d\n\n"+
-			"Press 's' or '1' to manage sites",
-		total,
-	)
-
-	return renderBox("🌐 Sites", content)
+	return ui.RenderBox("Sites", "TODO")
 }
 
 // renderNodesSummary renders the nodes summary box
 func renderNodesSummary(s *state.AppState) string {
-	total := len(s.Nodes)
+	// TODO: Implement nodes summary
+	// Count nodes by status (online, offline, degraded)
 
-	content := fmt.Sprintf(
-		"Total Nodes: %d\n\n"+
-			"Press 'n' or '3' to manage nodes",
-		total,
-	)
-
-	return renderBox("🖥️  Nodes", content)
+	return ui.RenderBox("Nodes", "TODO")
 }
 
 // renderDomainsSummary renders the domains summary box
 func renderDomainsSummary(s *state.AppState) string {
-	total := len(s.Domains)
+	// TODO: Implement domains summary
+	// Count total domains, manual DNS vs API-managed
 
-	content := fmt.Sprintf(
-		"Total Domains: %d\n\n"+
-			"Press 'd' or '2' to manage domains",
-		total,
-	)
-
-	return renderBox("🌍 Domains", content)
+	return ui.RenderBox("Domains", "TODO")
 }
