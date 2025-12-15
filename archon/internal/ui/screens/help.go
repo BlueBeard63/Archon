@@ -6,10 +6,11 @@ import (
 
 // No color constants needed - using default white on black
 
-// RenderHelp renders the help screen with all key bindings
+// RenderHelp renders the help screen with all key bindings in 2 columns
 func RenderHelp() string {
 	title := titleStyle.Render("Help - Keyboard Shortcuts")
 
+	// Left Column Sections
 	globalSection := titleStyle.Render("Global Keys") + "\n" +
 		formatKeyBinding("?", "Show this help screen") + "\n" +
 		formatKeyBinding("Esc", "Go back / Cancel") + "\n" +
@@ -17,6 +18,7 @@ func RenderHelp() string {
 		formatKeyBinding("Ctrl+S", "Save configuration")
 
 	navigationSection := titleStyle.Render("Navigation") + "\n" +
+		formatKeyBinding("Click Tabs", "Navigate with mouse") + "\n" +
 		formatKeyBinding("1, s", "Sites list") + "\n" +
 		formatKeyBinding("2, d", "Domains list") + "\n" +
 		formatKeyBinding("3, n", "Nodes list") + "\n" +
@@ -30,6 +32,14 @@ func RenderHelp() string {
 		formatKeyBinding("Enter", "View/Deploy selected item") + "\n" +
 		formatKeyBinding("Click", "Select item (mouse)")
 
+	formsSection := titleStyle.Render("Forms (Create/Edit)") + "\n" +
+		formatKeyBinding("Tab", "Next field") + "\n" +
+		formatKeyBinding("Shift+Tab", "Previous field") + "\n" +
+		formatKeyBinding("Enter", "Submit form") + "\n" +
+		formatKeyBinding("Esc", "Cancel") + "\n" +
+		formatKeyBinding("Click", "Focus field (mouse)")
+
+	// Right Column Sections
 	sitesSection := titleStyle.Render("Sites Specific") + "\n" +
 		formatKeyBinding("Enter", "Deploy site to node") + "\n" +
 		formatKeyBinding("s", "Stop site") + "\n" +
@@ -42,43 +52,63 @@ func RenderHelp() string {
 		formatKeyBinding("Enter", "View DNS records")
 
 	nodesSection := titleStyle.Render("Nodes Specific") + "\n" +
+		formatKeyBinding("v", "View node config") + "\n" +
 		formatKeyBinding("h", "Health check") + "\n" +
 		formatKeyBinding("Enter", "View node details") + "\n" +
 		formatKeyBinding("m", "View metrics")
 
-	formsSection := titleStyle.Render("Forms (Create/Edit)") + "\n" +
-		formatKeyBinding("Tab", "Next field") + "\n" +
-		formatKeyBinding("Shift+Tab", "Previous field") + "\n" +
-		formatKeyBinding("Enter", "Submit form") + "\n" +
-		formatKeyBinding("Esc", "Cancel") + "\n" +
-		formatKeyBinding("Click", "Focus field (mouse)")
-
 	mouseSection := titleStyle.Render("Mouse Support") + "\n" +
+		"• Click on tabs to navigate screens\n" +
 		"• Click on table rows to select items\n" +
 		"• Click on form fields to focus them\n" +
 		"• Click on buttons to activate them\n" +
 		"• Scroll to navigate long lists"
 
-	// Join all sections with vertical spacing
-	content := lipgloss.JoinVertical(
+	// Build left column
+	leftColumn := lipgloss.JoinVertical(
 		lipgloss.Left,
-		title,
-		"",
 		globalSection,
 		"",
 		navigationSection,
 		"",
 		listsSection,
 		"",
+		formsSection,
+	)
+
+	// Build right column
+	rightColumn := lipgloss.JoinVertical(
+		lipgloss.Left,
 		sitesSection,
 		"",
 		domainsSection,
 		"",
 		nodesSection,
 		"",
-		formsSection,
-		"",
 		mouseSection,
+	)
+
+	// Style columns with padding
+	columnStyle := lipgloss.NewStyle().
+		Width(40).
+		PaddingRight(2)
+
+	leftColumnStyled := columnStyle.Render(leftColumn)
+	rightColumnStyled := columnStyle.Render(rightColumn)
+
+	// Join columns horizontally
+	columns := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		leftColumnStyled,
+		rightColumnStyled,
+	)
+
+	// Combine title, columns, and footer
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		columns,
 		"",
 		helpStyle.Render("Press Esc or ? to close this help screen"),
 	)

@@ -3,73 +3,118 @@ package screens
 import (
 	"fmt"
 
-	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/lipgloss"
 	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/BlueBeard63/archon/internal/state"
+	"github.com/BlueBeard63/archon/internal/ui/components"
 )
 
-// Reuse styles from dashboard
-var _ = table.Model{} // Suppress unused import
-
-// RenderSitesList renders the sites list screen with table
+// RenderSitesList renders the sites list screen with buttons
 func RenderSitesList(s *state.AppState) string {
-	// TODO: Implement sites table using bubbles.table
-	// Columns: Name | Domain | Node | Status | Port | SSL
-	//
-	// Example structure:
-	// columns := []table.Column{
-	//     {Title: "Name", Width: 20},
-	//     {Title: "Domain", Width: 25},
-	//     {Title: "Node", Width: 15},
-	//     {Title: "Status", Width: 10},
-	//     {Title: "Port", Width: 6},
-	//     {Title: "SSL", Width: 5},
-	// }
-	//
-	// rows := []table.Row{}
-	// for _, site := range s.Sites {
-	//     domain := s.GetDomainByID(site.DomainID)
-	//     node := s.GetNodeByID(site.NodeID)
-	//     rows = append(rows, table.Row{
-	//         site.Name,
-	//         domain.Name,
-	//         node.Name,
-	//         string(site.Status),
-	//         fmt.Sprintf("%d", site.Port),
-	//         boolToYesNo(site.SSLEnabled),
-	//     })
-	// }
-	//
-	// t := table.New(
-	//     table.WithColumns(columns),
-	//     table.WithRows(rows),
-	//     table.WithFocused(true),
-	// )
-	//
-	// // Apply styles
-	// s := table.DefaultStyles()
-	// s.Header = ui.TableHeaderStyle
-	// s.Selected = ui.TableRowSelectedStyle
-	// t.SetStyles(s)
-	//
-	// return ui.TitleStyle.Render("Sites") + "\n" + t.View()
+	return RenderSitesListWithZones(s, nil)
+}
 
+// RenderSitesListWithZones renders sites list with optional button zones
+func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 	title := titleStyle.Render("🌐 Sites")
+
+	// Create button group
+	buttonGroup := &components.ButtonGroup{
+		Buttons: []components.Button{
+			{ID: "create-site", Label: "➕ Create Site", Primary: true},
+		},
+	}
+
+	var buttons string
+	if zm != nil {
+		buttons = buttonGroup.RenderWithZones(zm)
+	} else {
+		buttons = buttonGroup.Render()
+	}
 
 	var content string
 	if len(s.Sites) == 0 {
-		content = helpStyle.Render("No sites yet. Press 'n' to create your first site.")
+		content = helpStyle.Render("No sites yet. Click 'Create Site' or press 'n'.")
 	} else {
 		content = fmt.Sprintf("Total Sites: %d\n\n", len(s.Sites))
-		for i, site := range s.Sites {
-			content += fmt.Sprintf("%d. %s (Port: %d, Image: %s)\n", i+1, site.Name, site.Port, site.DockerImage)
+
+		// Manual table with row action buttons
+		headerStyle := lipgloss.NewStyle().Bold(true).BorderStyle(lipgloss.NormalBorder()).BorderBottom(true).BorderForeground(lipgloss.Color("240"))
+		rowStyle := lipgloss.NewStyle().PaddingRight(2)
+
+		header := headerStyle.Render(fmt.Sprintf("%-25s %-18s %-25s %-6s %-10s", "Name", "Domain", "Node", "Port", "Status"))
+		content += header + "\n"
+
+		for _, site := range s.Sites {
+			// Get domain and node names (would need lookups in real implementation)
+			domainName := site.DomainID.String()[:8] + "..."
+			nodeName := site.NodeID.String()[:8] + "..."
+
+			// Find actual names if possible
+			for _, d := range s.Domains {
+				if d.ID == site.DomainID {
+					domainName = d.Name
+					break
+				}
+			}
+			for _, n := range s.Nodes {
+				if n.ID == site.NodeID {
+					nodeName = n.Name
+					break
+				}
+			}
+
+			// Create row action buttons (icon only)
+			editBtn := components.Button{ID: "edit-site-" + site.ID.String(), Label: "✏️", Primary: false}
+			deleteBtn := components.Button{ID: "delete-site-" + site.ID.String(), Label: "🗑️", Primary: false}
+
+			var editBtnStr, deleteBtnStr string
+			if zm != nil {
+				editBtnStr = editBtn.RenderWithZone(zm)
+				deleteBtnStr = deleteBtn.RenderWithZone(zm)
+			} else {
+				editBtnStr = editBtn.Render()
+				deleteBtnStr = deleteBtn.Render()
+			}
+
+			actions := editBtnStr + " " + deleteBtnStr
+
+			rowText := fmt.Sprintf("%-25s %-18s %-25s %-6d %-10s  %s",
+				truncate(site.Name, 25),
+				truncate(domainName, 18),
+				truncate(nodeName, 25),
+				site.Port,
+				site.Status,
+				actions,
+			)
+
+			content += rowStyle.Render(rowText) + "\n"
 		}
 	}
 
-	help := helpStyle.Render("\nPress n to create • Esc to go back")
+	help := helpStyle.Render("\n\nPress n to create • Esc to go back")
 
-	return title + "\n\n" + content + "\n" + help
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		buttons,
+		"",
+		content,
+		help,
+	)
+}
+
+// truncate truncates a string to maxLen characters
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
 }
 
 // RenderSiteCreate renders the site creation form

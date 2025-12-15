@@ -3,62 +3,103 @@ package screens
 import (
 	"fmt"
 
-	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
 	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/BlueBeard63/archon/internal/state"
+	"github.com/BlueBeard63/archon/internal/ui/components"
 )
 
 var (
 	notificationWarningStyle = lipgloss.NewStyle().Bold(true)
 )
 
-var _ = table.Model{} // Suppress unused import
-
 // RenderDomainsList renders the domains list screen with table
 func RenderDomainsList(s *state.AppState) string {
-	// TODO: Implement domains table using bubbles.table
-	// Columns: Name | Provider | Records | Traefik | Created
-	//
-	// Example structure similar to sites table:
-	// columns := []table.Column{
-	//     {Title: "Name", Width: 30},
-	//     {Title: "Provider", Width: 15},
-	//     {Title: "Records", Width: 10},
-	//     {Title: "Traefik", Width: 8},
-	//     {Title: "Created", Width: 12},
-	// }
-	//
-	// rows := []table.Row{}
-	// for _, domain := range s.Domains {
-	//     rows = append(rows, table.Row{
-	//         domain.Name,
-	//         domain.ProviderName(),
-	//         fmt.Sprintf("%d", len(domain.DnsRecords)),
-	//         boolToYesNo(domain.TraefikEnabled),
-	//         domain.CreatedAt.Format("2006-01-02"),
-	//     })
-	// }
-	//
-	// If domain is manual DNS, show warning indicator
+	return RenderDomainsListWithZones(s, nil)
+}
 
+// RenderDomainsListWithZones renders domains list with table and button zones
+func RenderDomainsListWithZones(s *state.AppState, zm *zone.Manager) string {
 	title := titleStyle.Render("🌍 Domains")
+
+	// Create button group
+	buttonGroup := &components.ButtonGroup{
+		Buttons: []components.Button{
+			{ID: "create-domain", Label: "➕ Create Domain", Primary: true},
+		},
+	}
+
+	var buttons string
+	if zm != nil {
+		buttons = buttonGroup.RenderWithZones(zm)
+	} else {
+		buttons = buttonGroup.Render()
+	}
 
 	var content string
 	if len(s.Domains) == 0 {
-		content = helpStyle.Render("No domains yet. Press 'n' to create your first domain.")
+		content = helpStyle.Render("No domains yet. Click 'Create Domain' or press 'n'.")
 	} else {
 		content = fmt.Sprintf("Total Domains: %d\n\n", len(s.Domains))
-		for i, domain := range s.Domains {
-			content += fmt.Sprintf("%d. %s (%s)\n", i+1, domain.Name, domain.ProviderName())
+
+		// Manual table with row action buttons
+		headerStyle := lipgloss.NewStyle().Bold(true).BorderStyle(lipgloss.NormalBorder()).BorderBottom(true).BorderForeground(lipgloss.Color("240"))
+		rowStyle := lipgloss.NewStyle().PaddingRight(2)
+
+		header := headerStyle.Render(fmt.Sprintf("%-30s %-15s %-8s %-8s", "Name", "Provider", "Records", "Traefik"))
+		content += header + "\n"
+
+		for _, domain := range s.Domains {
+			providerName := domain.ProviderName()
+			if domain.IsManualDNS() {
+				providerName = "⚠ " + providerName
+			}
+
+			traefikStatus := "No"
+			if domain.TraefikEnabled {
+				traefikStatus = "Yes"
+			}
+
+			// Create row action buttons (icon only)
+			editBtn := components.Button{ID: "edit-domain-" + domain.ID.String(), Label: "✏️", Primary: false}
+			deleteBtn := components.Button{ID: "delete-domain-" + domain.ID.String(), Label: "🗑️", Primary: false}
+
+			var editBtnStr, deleteBtnStr string
+			if zm != nil {
+				editBtnStr = editBtn.RenderWithZone(zm)
+				deleteBtnStr = deleteBtn.RenderWithZone(zm)
+			} else {
+				editBtnStr = editBtn.Render()
+				deleteBtnStr = deleteBtn.Render()
+			}
+
+			actions := editBtnStr + " " + deleteBtnStr
+
+			rowText := fmt.Sprintf("%-30s %-15s %-8s %-8s  %s",
+				truncate(domain.Name, 30),
+				truncate(providerName, 15),
+				fmt.Sprintf("%d", len(domain.DnsRecords)),
+				traefikStatus,
+				actions,
+			)
+
+			content += rowStyle.Render(rowText) + "\n"
 		}
 	}
 
-	help := helpStyle.Render("\nPress n to create • Esc to go back")
+	help := helpStyle.Render("\n\nPress n to create • Esc to go back")
 
-	return title + "\n\n" + content + "\n" + help
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		buttons,
+		"",
+		content,
+		help,
+	)
 }
 
 // RenderDomainCreate renders the domain creation form

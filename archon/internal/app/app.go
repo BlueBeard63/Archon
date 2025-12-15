@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
@@ -28,39 +27,27 @@ type Model struct {
 
 // NewModel creates a new application model with initial state
 func NewModel(configPath string) (*Model, error) {
-	// TODO: Implement model initialization
-	// Steps:
-	// 1. Create config loader
-	// 2. Load config from path
-	// 3. Initialize AppState from config
-	// 4. Create node client
-	// 5. Return model
+	// Create config loader
+	loader := config.NewFileConfigLoader()
 
-	// Example structure:
-	// loader := config.NewFileConfigLoader()
-	// cfg, err := loader.Load(configPath)
-	// if err != nil {
-	//     return nil, err
-	// }
-	//
-	// appState := state.NewAppState()
-	// appState.Sites = cfg.Sites
-	// appState.Domains = cfg.Domains
-	// appState.Nodes = cfg.Nodes
-	// appState.ConfigPath = configPath
-	// appState.AutoSave = cfg.Settings.AutoSave
-	//
-	// return &Model{
-	//     state:        appState,
-	//     nodeClient:   api.NewHTTPNodeClient(),
-	//     configLoader: loader,
-	//     configPath:   configPath,
-	// }, nil
+	// Load config from path
+	cfg, err := loader.Load(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Initialize AppState from config
+	appState := state.NewAppState()
+	appState.Sites = cfg.Sites
+	appState.Domains = cfg.Domains
+	appState.Nodes = cfg.Nodes
+	appState.ConfigPath = configPath
+	appState.AutoSave = cfg.Settings.AutoSave
 
 	return &Model{
-		state:        state.NewAppState(),
+		state:        appState,
 		nodeClient:   api.NewHTTPNodeClient(),
-		configLoader: config.NewFileConfigLoader(),
+		configLoader: loader,
 		configPath:   configPath,
 		zone:         zone.New(),
 	}, nil
@@ -90,20 +77,109 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKeyPress(msg)
 
 	case tea.MouseMsg:
-		// Handle bubblezone clicks first
-		if msg.Action == tea.MouseActionRelease {
-			// Get zone ID at click position
-			// bubblezone tracks zones during Scan() and Get() returns zone ID as string
-			prefix, zoneID := m.zone.GetPrefix(msg.X, msg.Y)
-
-			// Check if it's a menu item
-			if prefix == "menu" {
-				return m.handleMenuClick("menu:" + zoneID)
+		// Handle bubblezone clicks
+		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
+			// Check if click was on a tab
+			if m.zone.Get("tab:dashboard").InBounds(msg) {
+				m.state.NavigateTo(state.ScreenDashboard)
+				return m, nil
+			}
+			if m.zone.Get("tab:sites").InBounds(msg) {
+				m.state.NavigateTo(state.ScreenSitesList)
+				return m, nil
+			}
+			if m.zone.Get("tab:domains").InBounds(msg) {
+				m.state.NavigateTo(state.ScreenDomainsList)
+				return m, nil
+			}
+			if m.zone.Get("tab:nodes").InBounds(msg) {
+				m.state.NavigateTo(state.ScreenNodesList)
+				return m, nil
+			}
+			if m.zone.Get("tab:help").InBounds(msg) {
+				m.state.NavigateTo(state.ScreenHelp)
+				return m, nil
 			}
 
-			// Check if it's a form field
-			if prefix == "field" {
-				return m.handleFieldClick("field:" + zoneID)
+			// Check if click was on a button
+			if m.zone.Get("button:create-site").InBounds(msg) {
+				m.state.NavigateTo(state.ScreenSiteCreate)
+				return m, nil
+			}
+			if m.zone.Get("button:create-domain").InBounds(msg) {
+				m.state.NavigateTo(state.ScreenDomainCreate)
+				return m, nil
+			}
+			if m.zone.Get("button:create-node").InBounds(msg) {
+				m.state.NavigateTo(state.ScreenNodeCreate)
+				return m, nil
+			}
+
+			// Check for row action buttons (edit/delete/view)
+			// Sites
+			for _, site := range m.state.Sites {
+				editID := "button:edit-site-" + site.ID.String()
+				deleteID := "button:delete-site-" + site.ID.String()
+
+				if m.zone.Get(editID).InBounds(msg) {
+					// TODO: Navigate to site edit screen
+					m.state.AddNotification("Edit site: "+site.Name+" (not yet implemented)", "info")
+					return m, nil
+				}
+				if m.zone.Get(deleteID).InBounds(msg) {
+					// Delete site
+					return m.handleDeleteSite(site.ID)
+				}
+			}
+
+			// Domains
+			for _, domain := range m.state.Domains {
+				editID := "button:edit-domain-" + domain.ID.String()
+				deleteID := "button:delete-domain-" + domain.ID.String()
+
+				if m.zone.Get(editID).InBounds(msg) {
+					// TODO: Navigate to domain edit screen
+					m.state.AddNotification("Edit domain: "+domain.Name+" (not yet implemented)", "info")
+					return m, nil
+				}
+				if m.zone.Get(deleteID).InBounds(msg) {
+					// Delete domain
+					return m.handleDeleteDomain(domain.ID)
+				}
+			}
+
+			// Nodes
+			for _, node := range m.state.Nodes {
+				viewID := "button:view-node-" + node.ID.String()
+				editID := "button:edit-node-" + node.ID.String()
+				deleteID := "button:delete-node-" + node.ID.String()
+
+				if m.zone.Get(viewID).InBounds(msg) {
+					// View node config
+					m.state.SelectedNodeID = node.ID
+					m.state.NavigateTo(state.ScreenNodeConfig)
+					return m, nil
+				}
+				if m.zone.Get(editID).InBounds(msg) {
+					// TODO: Navigate to node edit screen
+					m.state.AddNotification("Edit node: "+node.Name+" (not yet implemented)", "info")
+					return m, nil
+				}
+				if m.zone.Get(deleteID).InBounds(msg) {
+					// Delete node
+					return m.handleDeleteNode(node.ID)
+				}
+			}
+
+			// Check if click was on a form field
+			for i := 0; i < 10; i++ { // Check up to 10 fields
+				zoneID := fmt.Sprintf("field:%d", i)
+				if m.zone.Get(zoneID).InBounds(msg) {
+					if i < len(m.state.FormFields) {
+						m.state.CurrentFieldIndex = i
+						return m, nil
+					}
+				}
 			}
 		}
 		// Fallback to traditional mouse handler

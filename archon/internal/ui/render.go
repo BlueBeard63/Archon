@@ -9,51 +9,57 @@ import (
 	"github.com/BlueBeard63/archon/internal/ui/screens"
 )
 
+var tabBar = components.NewTabBar()
+
 // Render is the main rendering function that routes to appropriate screen (without zones)
 func Render(s *state.AppState) string {
+	// Update tab bar width based on window width
+	tabBar.Width = s.WindowWidth
+	if tabBar.Width == 0 {
+		tabBar.Width = 80
+	}
+
 	// Render header
 	header := RenderHeader()
 
-	// Render navigation menu
-	menu := RenderMenu(s.CurrentScreen, nil)
+	// Render tab navigation bar
+	tabs := tabBar.Render(s.CurrentScreen)
 
 	// Render main content based on current screen
 	content := RenderScreen(s, nil)
-
-	// Render status bar
-	statusBar := components.RenderStatusBar(s, s.WindowWidth)
 
 	// Join all sections vertically
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		header,
-		menu,
+		tabs,
 		content,
-		statusBar,
 	)
 }
 
 // RenderWithZones is the main rendering function with bubblezone support
 func RenderWithZones(s *state.AppState, zm *zone.Manager) string {
+	// Update tab bar width based on window width
+	tabBar.Width = s.WindowWidth
+	if tabBar.Width == 0 {
+		tabBar.Width = 80
+	}
+
 	// Render header
 	header := RenderHeader()
 
-	// Render navigation menu with zones
-	menu := RenderMenu(s.CurrentScreen, zm)
+	// Render tab navigation bar with zones
+	tabs := tabBar.RenderWithZones(s.CurrentScreen, zm)
 
 	// Render main content based on current screen with zones
 	content := RenderScreen(s, zm)
-
-	// Render status bar
-	statusBar := components.RenderStatusBar(s, s.WindowWidth)
 
 	// Join all sections vertically
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		header,
-		menu,
+		tabs,
 		content,
-		statusBar,
 	)
 }
 
@@ -63,59 +69,25 @@ func RenderHeader() string {
 	return style.Render("⚡ ARCHON TUI - Docker Site Manager")
 }
 
-// RenderMenu renders the navigation menu bar
-func RenderMenu(currentScreen state.Screen, zm *zone.Manager) string {
-	var items []string
-
-	if zm != nil {
-		// Wrap each menu item in a clickable zone
-		items = []string{
-			zm.Mark("menu:dashboard", formatMenuItem("0:Dashboard", currentScreen == state.ScreenDashboard)),
-			zm.Mark("menu:sites", formatMenuItem("1:Sites", currentScreen == state.ScreenSitesList)),
-			zm.Mark("menu:domains", formatMenuItem("2:Domains", currentScreen == state.ScreenDomainsList)),
-			zm.Mark("menu:nodes", formatMenuItem("3:Nodes", currentScreen == state.ScreenNodesList)),
-			zm.Mark("menu:help", formatMenuItem("?:Help", currentScreen == state.ScreenHelp)),
-		}
-	} else {
-		// No zones - just render normally
-		items = []string{
-			formatMenuItem("0:Dashboard", currentScreen == state.ScreenDashboard),
-			formatMenuItem("1:Sites", currentScreen == state.ScreenSitesList),
-			formatMenuItem("2:Domains", currentScreen == state.ScreenDomainsList),
-			formatMenuItem("3:Nodes", currentScreen == state.ScreenNodesList),
-			formatMenuItem("?:Help", currentScreen == state.ScreenHelp),
-		}
-	}
-
-	style := lipgloss.NewStyle().Padding(0, 1)
-	return style.Render(lipgloss.JoinHorizontal(lipgloss.Left, items...))
-}
-
-// formatMenuItem formats a menu item with active/inactive styling
-func formatMenuItem(text string, active bool) string {
-	if active {
-		return lipgloss.NewStyle().Bold(true).Render(" " + text + " ")
-	}
-	return " " + text + " "
-}
-
 // RenderScreen routes to the appropriate screen renderer
 func RenderScreen(s *state.AppState, zm *zone.Manager) string {
 	switch s.CurrentScreen {
 	case state.ScreenDashboard:
 		return screens.RenderDashboard(s)
 	case state.ScreenSitesList:
-		return screens.RenderSitesList(s)
+		return screens.RenderSitesListWithZones(s, zm)
 	case state.ScreenSiteCreate:
 		return screens.RenderSiteCreateWithZones(s, zm)
 	case state.ScreenDomainsList:
-		return screens.RenderDomainsList(s)
+		return screens.RenderDomainsListWithZones(s, zm)
 	case state.ScreenDomainCreate:
 		return screens.RenderDomainCreateWithZones(s, zm)
 	case state.ScreenNodesList:
-		return screens.RenderNodesList(s)
+		return screens.RenderNodesListWithZones(s, zm)
 	case state.ScreenNodeCreate:
 		return screens.RenderNodeCreateWithZones(s, zm)
+	case state.ScreenNodeConfig:
+		return screens.RenderNodeConfig(s)
 	case state.ScreenHelp:
 		return screens.RenderHelp()
 	default:

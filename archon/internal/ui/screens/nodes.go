@@ -3,74 +3,103 @@ package screens
 import (
 	"fmt"
 
-	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/lipgloss"
 	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/BlueBeard63/archon/internal/state"
+	"github.com/BlueBeard63/archon/internal/ui/components"
 )
 
-var _ = table.Model{} // Suppress unused import
-
-// RenderNodesList renders the nodes list screen with table
+// RenderNodesList renders the nodes list screen
 func RenderNodesList(s *state.AppState) string {
-	// TODO: Implement nodes table using bubbles.table
-	// Columns: Name | IP Address | Status | Docker | Traefik | Last Check
-	//
-	// Example structure:
-	// columns := []table.Column{
-	//     {Title: "Name", Width: 20},
-	//     {Title: "IP Address", Width: 16},
-	//     {Title: "Status", Width: 10},
-	//     {Title: "Docker", Width: 12},
-	//     {Title: "Traefik", Width: 12},
-	//     {Title: "Last Check", Width: 20},
-	// }
-	//
-	// rows := []table.Row{}
-	// for _, node := range s.Nodes {
-	//     dockerInfo := "N/A"
-	//     if node.DockerInfo != nil {
-	//         dockerInfo = fmt.Sprintf("v%s (%d)", node.DockerInfo.Version, node.DockerInfo.ContainersRunning)
-	//     }
-	//
-	//     traefikInfo := "N/A"
-	//     if node.TraefikInfo != nil {
-	//         traefikInfo = fmt.Sprintf("v%s", node.TraefikInfo.Version)
-	//     }
-	//
-	//     lastCheck := "Never"
-	//     if node.LastHealthCheck != nil {
-	//         lastCheck = node.LastHealthCheck.Format("2006-01-02 15:04")
-	//     }
-	//
-	//     rows = append(rows, table.Row{
-	//         node.Name,
-	//         node.IPAddress.String(),
-	//         string(node.Status),
-	//         dockerInfo,
-	//         traefikInfo,
-	//         lastCheck,
-	//     })
-	// }
-	//
-	// Color-code status: online=green, offline=red, degraded=yellow
+	return RenderNodesListWithZones(s, nil)
+}
 
+// RenderNodesListWithZones renders nodes list with button zones
+func RenderNodesListWithZones(s *state.AppState, zm *zone.Manager) string {
 	title := titleStyle.Render("🖥️  Nodes")
+
+	// Create button group
+	buttonGroup := &components.ButtonGroup{
+		Buttons: []components.Button{
+			{ID: "create-node", Label: "➕ Create Node", Primary: true},
+		},
+	}
+
+	var buttons string
+	if zm != nil {
+		buttons = buttonGroup.RenderWithZones(zm)
+	} else {
+		buttons = buttonGroup.Render()
+	}
 
 	var content string
 	if len(s.Nodes) == 0 {
-		content = helpStyle.Render("No nodes yet. Press 'n' to create your first node.")
+		content = helpStyle.Render("No nodes yet. Click 'Create Node' or press 'n'.")
 	} else {
 		content = fmt.Sprintf("Total Nodes: %d\n\n", len(s.Nodes))
-		for i, node := range s.Nodes {
-			content += fmt.Sprintf("%d. %s (%s - %s)\n", i+1, node.Name, node.IPAddress.String(), node.APIEndpoint)
+
+		// Manual table with row action buttons
+		headerStyle := lipgloss.NewStyle().Bold(true).BorderStyle(lipgloss.NormalBorder()).BorderBottom(true).BorderForeground(lipgloss.Color("240"))
+		rowStyle := lipgloss.NewStyle().PaddingRight(2)
+
+		header := headerStyle.Render(fmt.Sprintf("%-20s %-15s %-28s %-10s", "Name", "IP Address", "API Endpoint", "Status"))
+		content += header + "\n"
+
+		for _, node := range s.Nodes {
+			// Create row action buttons (icon only)
+			viewBtn := components.Button{ID: "view-node-" + node.ID.String(), Label: "👁️", Primary: false}
+			editBtn := components.Button{ID: "edit-node-" + node.ID.String(), Label: "✏️", Primary: false}
+			deleteBtn := components.Button{ID: "delete-node-" + node.ID.String(), Label: "🗑️", Primary: false}
+
+			var viewBtnStr, editBtnStr, deleteBtnStr string
+			if zm != nil {
+				viewBtnStr = viewBtn.RenderWithZone(zm)
+				editBtnStr = editBtn.RenderWithZone(zm)
+				deleteBtnStr = deleteBtn.RenderWithZone(zm)
+			} else {
+				viewBtnStr = viewBtn.Render()
+				editBtnStr = editBtn.Render()
+				deleteBtnStr = deleteBtn.Render()
+			}
+
+			actions := viewBtnStr + " " + editBtnStr + " " + deleteBtnStr
+
+			rowText := fmt.Sprintf("%-20s %-15s %-28s %-10s  %s",
+				truncateNode(node.Name, 20),
+				node.IPAddress.String(),
+				truncateNode(node.APIEndpoint, 28),
+				node.Status,
+				actions,
+			)
+
+			content += rowStyle.Render(rowText) + "\n"
 		}
 	}
 
-	help := helpStyle.Render("\nPress n to create • Esc to go back")
+	help := helpStyle.Render("\n\nPress n to create • Esc to go back")
 
-	return title + "\n\n" + content + "\n" + help
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		buttons,
+		"",
+		content,
+		help,
+	)
+}
+
+// truncateNode truncates a string to maxLen characters
+func truncateNode(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
 }
 
 // RenderNodeCreate renders the node creation form
@@ -209,7 +238,37 @@ func RenderNodeDetails(s *state.AppState, nodeID string) string {
 		content += fmt.Sprintf("\nLast Health Check: %s\n", node.LastHealthCheck.Format("2006-01-02 15:04:05"))
 	}
 
-	help := helpStyle.Render("\nPress h to refresh health check • Esc to go back")
+	help := helpStyle.Render("\nPress c to view config • h to refresh health check • Esc to go back")
 
 	return title + "\n\n" + content + "\n" + help
+}
+
+// RenderNodeConfig renders the TOML configuration for a node
+func RenderNodeConfig(s *state.AppState) string {
+	title := titleStyle.Render("📄 Node Configuration")
+
+	// Find the node by selected ID
+	var node *models.Node
+	for i := range s.Nodes {
+		if s.Nodes[i].ID == s.SelectedNodeID {
+			node = &s.Nodes[i]
+			break
+		}
+	}
+
+	if node == nil {
+		return title + "\n\n" + "Node not found\n\n" + helpStyle.Render("Press Esc to go back")
+	}
+
+	// Generate the TOML config
+	configContent := node.GenerateNodeConfigTOML()
+
+	// Show instructions at the top
+	instructions := helpStyle.Render(
+		"Copy this configuration to /etc/archon/node-config.toml on your server (" + node.IPAddress.String() + ")",
+	)
+
+	help := helpStyle.Render("\nPress Esc to go back • Press s to save to file")
+
+	return title + "\n\n" + instructions + "\n\n" + configContent + "\n" + help
 }

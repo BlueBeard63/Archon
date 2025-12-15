@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
 
+	"github.com/BlueBeard63/archon/internal/config"
 	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/BlueBeard63/archon/internal/state"
 )
@@ -200,6 +201,19 @@ func (m Model) handleNodesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "n", "c":
 		m.state.NavigateTo(state.ScreenNodeCreate)
+		return m, nil
+
+	case "v":
+		// View config for selected/first node
+		if len(m.state.Nodes) > 0 {
+			// Use the selected index if valid, otherwise use first node
+			nodeIndex := m.state.NodesListIndex
+			if nodeIndex < 0 || nodeIndex >= len(m.state.Nodes) {
+				nodeIndex = 0
+			}
+			m.state.SelectedNodeID = m.state.Nodes[nodeIndex].ID
+			m.state.NavigateTo(state.ScreenNodeConfig)
+		}
 		return m, nil
 	}
 
@@ -422,6 +436,14 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 	m.state.Sites = append(m.state.Sites, *site)
 
 	m.state.AddNotification("Site created: "+site.Name, "success")
+
+	// Auto-save config if enabled
+	if m.state.AutoSave {
+		go func() {
+			_ = m.saveConfigSync()
+		}()
+	}
+
 	m.state.NavigateBack()
 
 	return m, nil
@@ -454,6 +476,14 @@ func (m Model) handleDomainCreateSubmit() (tea.Model, tea.Cmd) {
 	m.state.Domains = append(m.state.Domains, *domain)
 
 	m.state.AddNotification("Domain created: "+domainName+" (Manual DNS)", "success")
+
+	// Auto-save config if enabled
+	if m.state.AutoSave {
+		go func() {
+			_ = m.saveConfigSync()
+		}()
+	}
+
 	m.state.NavigateBack()
 
 	return m, nil
@@ -496,7 +526,17 @@ func (m Model) handleNodeCreateSubmit() (tea.Model, tea.Cmd) {
 	m.state.Nodes = append(m.state.Nodes, *node)
 
 	m.state.AddNotification("Node created: "+node.Name, "success")
-	m.state.NavigateBack()
+
+	// Auto-save config if enabled
+	if m.state.AutoSave {
+		go func() {
+			_ = m.saveConfigSync()
+		}()
+	}
+
+	// Set selected node and navigate to config screen
+	m.state.SelectedNodeID = node.ID
+	m.state.NavigateTo(state.ScreenNodeConfig)
 
 	return m, nil
 }
@@ -505,12 +545,12 @@ func (m Model) handleNodeCreateSubmit() (tea.Model, tea.Cmd) {
 // Bubblezone Mouse Handlers
 // ============================================================================
 
-// handleMenuClick handles clicks on menu items
-func (m Model) handleMenuClick(zoneID string) (tea.Model, tea.Cmd) {
-	// Extract screen from zone ID (format: "menu:screenname")
-	screen := zoneID[5:] // Remove "menu:" prefix
+// handleTabClick handles clicks on tab items
+func (m Model) handleTabClick(zoneID string) (tea.Model, tea.Cmd) {
+	// Extract tab ID from zone ID (format: "tab:dashboard", "tab:sites", etc.)
+	tabID := zoneID[4:] // Remove "tab:" prefix
 
-	switch screen {
+	switch tabID {
 	case "dashboard":
 		m.state.NavigateTo(state.ScreenDashboard)
 	case "sites":
@@ -537,5 +577,119 @@ func (m Model) handleFieldClick(zoneID string) (tea.Model, tea.Cmd) {
 		m.state.CurrentFieldIndex = fieldIndex
 	}
 
+	return m, nil
+}
+
+// ============================================================================
+// Config Management Helpers
+// ============================================================================
+
+// saveConfigSync synchronously saves the current state to config file
+func (m Model) saveConfigSync() error {
+	cfg := &config.Config{
+		Version:  "1.0.0",
+		Sites:    m.state.Sites,
+		Domains:  m.state.Domains,
+		Nodes:    m.state.Nodes,
+		Settings: config.Settings{
+			AutoSave:                m.state.AutoSave,
+			HealthCheckIntervalSecs: 60,
+			DefaultDnsTTL:           3600,
+			Theme:                   "default",
+		},
+	}
+
+	return m.configLoader.Save(m.configPath, cfg)
+}
+
+// ============================================================================
+// Delete Handlers
+// ============================================================================
+
+// handleDeleteSite removes a site from the state
+func (m Model) handleDeleteSite(siteID uuid.UUID) (tea.Model, tea.Cmd) {
+	// Find and remove site
+	for i, site := range m.state.Sites {
+		if site.ID == siteID {
+			// Remove from slice
+			m.state.Sites = append(m.state.Sites[:i], m.state.Sites[i+1:]...)
+			m.state.AddNotification("Deleted site: "+site.Name, "success")
+
+			// Auto-save config if enabled
+			if m.state.AutoSave {
+				go func() {
+					_ = m.saveConfigSync()
+				}()
+			}
+
+			return m, nil
+		}
+	}
+
+	m.state.AddNotification("Site not found", "error")
+	return m, nil
+}
+
+// handleDeleteDomain removes a domain from the state
+func (m Model) handleDeleteDomain(domainID uuid.UUID) (tea.Model, tea.Cmd) {
+	// Check if domain is used by any sites
+	for _, site := range m.state.Sites {
+		if site.DomainID == domainID {
+			m.state.AddNotification("Cannot delete domain: used by site "+site.Name, "error")
+			return m, nil
+		}
+	}
+
+	// Find and remove domain
+	for i, domain := range m.state.Domains {
+		if domain.ID == domainID {
+			// Remove from slice
+			m.state.Domains = append(m.state.Domains[:i], m.state.Domains[i+1:]...)
+			m.state.AddNotification("Deleted domain: "+domain.Name, "success")
+
+			// Auto-save config if enabled
+			if m.state.AutoSave {
+				go func() {
+					_ = m.saveConfigSync()
+				}()
+			}
+
+			return m, nil
+		}
+	}
+
+	m.state.AddNotification("Domain not found", "error")
+	return m, nil
+}
+
+// handleDeleteNode removes a node from the state
+func (m Model) handleDeleteNode(nodeID uuid.UUID) (tea.Model, tea.Cmd) {
+	// Check if node is used by any sites
+	for _, site := range m.state.Sites {
+		if site.NodeID == nodeID {
+			m.state.AddNotification("Cannot delete node: used by site "+site.Name, "error")
+			return m, nil
+		}
+	}
+
+	// Find and remove node
+	for i, node := range m.state.Nodes {
+		if node.ID == nodeID {
+			// Remove from slice
+			m.state.Nodes = append(m.state.Nodes[:i], m.state.Nodes[i+1:]...)
+			m.state.AddNotification("Deleted node: "+node.Name, "success")
+
+			// Auto-save config if enabled
+			if m.state.AutoSave {
+				go func() {
+					_ = m.saveConfigSync()
+				}()
+			}
+
+			return m, nil
+		}
+	}
+
+	m.state.AddNotification("Node not found", "error")
 	return m, nil
 }

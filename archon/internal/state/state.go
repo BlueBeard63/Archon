@@ -16,6 +16,7 @@ const (
 	ScreenDomainCreate Screen = "domain_create"
 	ScreenNodesList    Screen = "nodes_list"
 	ScreenNodeCreate   Screen = "node_create"
+	ScreenNodeConfig   Screen = "node_config"
 	ScreenHelp         Screen = "help"
 )
 
@@ -31,9 +32,10 @@ type AppState struct {
 	PreviousScreens []Screen `json:"previous_screens"` // Navigation stack for back button
 
 	// Selection state (for table lists)
-	SitesListIndex   int `json:"sites_list_index"`
-	DomainsListIndex int `json:"domains_list_index"`
-	NodesListIndex   int `json:"nodes_list_index"`
+	SitesListIndex   int       `json:"sites_list_index"`
+	DomainsListIndex int       `json:"domains_list_index"`
+	NodesListIndex   int       `json:"nodes_list_index"`
+	SelectedNodeID   uuid.UUID `json:"selected_node_id"` // For viewing node config
 
 	// Form state (for create/edit screens)
 	FormFields        []string `json:"form_fields"`        // Current values of form fields

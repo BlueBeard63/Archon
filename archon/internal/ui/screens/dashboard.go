@@ -54,10 +54,25 @@ func renderBox(title, content string) string {
 func renderSitesSummary(s *state.AppState) string {
 	total := len(s.Sites)
 
+	// Show first few site names for debugging
+	siteNames := ""
+	if total > 0 {
+		siteNames = "\n\nSites:\n"
+		for i, site := range s.Sites {
+			if i < 3 {
+				siteNames += fmt.Sprintf("• %s\n", site.Name)
+			}
+		}
+		if total > 3 {
+			siteNames += fmt.Sprintf("... and %d more", total-3)
+		}
+	}
+
 	content := fmt.Sprintf(
-		"Total Sites: %d\n\n"+
+		"Total Sites: %d%s\n\n"+
 			"Press 's' or '1' to manage sites",
 		total,
+		siteNames,
 	)
 
 	return renderBox("🌐 Sites", content)
@@ -67,10 +82,25 @@ func renderSitesSummary(s *state.AppState) string {
 func renderNodesSummary(s *state.AppState) string {
 	total := len(s.Nodes)
 
+	// Show first few node names for debugging
+	nodeNames := ""
+	if total > 0 {
+		nodeNames = "\n\nNodes:\n"
+		for i, node := range s.Nodes {
+			if i < 3 {
+				nodeNames += fmt.Sprintf("• %s\n", node.Name)
+			}
+		}
+		if total > 3 {
+			nodeNames += fmt.Sprintf("... and %d more", total-3)
+		}
+	}
+
 	content := fmt.Sprintf(
-		"Total Nodes: %d\n\n"+
+		"Total Nodes: %d%s\n\n"+
 			"Press 'n' or '3' to manage nodes",
 		total,
+		nodeNames,
 	)
 
 	return renderBox("🖥️  Nodes", content)
@@ -80,10 +110,25 @@ func renderNodesSummary(s *state.AppState) string {
 func renderDomainsSummary(s *state.AppState) string {
 	total := len(s.Domains)
 
+	// Show first few domain names for debugging
+	domainNames := ""
+	if total > 0 {
+		domainNames = "\n\nDomains:\n"
+		for i, domain := range s.Domains {
+			if i < 3 {
+				domainNames += fmt.Sprintf("• %s\n", domain.Name)
+			}
+		}
+		if total > 3 {
+			domainNames += fmt.Sprintf("... and %d more", total-3)
+		}
+	}
+
 	content := fmt.Sprintf(
-		"Total Domains: %d\n\n"+
+		"Total Domains: %d%s\n\n"+
 			"Press 'd' or '2' to manage domains",
 		total,
+		domainNames,
 	)
 
 	return renderBox("🌍 Domains", content)
