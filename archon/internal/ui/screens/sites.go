@@ -43,7 +43,7 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		headerStyle := lipgloss.NewStyle().Bold(true).BorderStyle(lipgloss.NormalBorder()).BorderBottom(true).BorderForeground(lipgloss.Color("240"))
 		rowStyle := lipgloss.NewStyle().PaddingRight(2)
 
-		header := headerStyle.Render(fmt.Sprintf("%-25s %-18s %-25s %-6s %-10s", "Name", "Domain", "Node", "Port", "Status"))
+		header := headerStyle.Render(fmt.Sprintf("%-25s %-18s %-25s %-6s %-10s %-45s", "Name", "Domain", "Node", "Port", "Status", "Actions"))
 		content += header + "\n"
 
 		for _, site := range s.Sites {
@@ -66,8 +66,8 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 			}
 
 			// Create row action buttons (icon only)
-			editBtn := components.Button{ID: "edit-site-" + site.ID.String(), Label: "✏️", Primary: false}
-			deleteBtn := components.Button{ID: "delete-site-" + site.ID.String(), Label: "🗑️", Primary: false}
+			editBtn := components.Button{ID: "edit-site-" + site.ID.String(), Label: "✏️", Primary: false, Border: false, Icon: true}
+			deleteBtn := components.Button{ID: "delete-site-" + site.ID.String(), Label: "🗑️", Primary: false, Border: false, Icon: true}
 
 			var editBtnStr, deleteBtnStr string
 			if zm != nil {
@@ -80,7 +80,7 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 
 			actions := editBtnStr + " " + deleteBtnStr
 
-			rowText := fmt.Sprintf("%-25s %-18s %-25s %-6d %-10s  %s",
+			rowText := fmt.Sprintf("%-25s %-18s %-25s %-6d %-10s %-45s",
 				truncate(site.Name, 25),
 				truncate(domainName, 18),
 				truncate(nodeName, 25),

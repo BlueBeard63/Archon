@@ -7,10 +7,12 @@ import (
 
 var (
 	// Button styles
-	buttonStyle = lipgloss.NewStyle().
-			Bold(true).
-			Padding(0, 2).
-			Margin(0, 1).
+	buttonStyleNoBorder = lipgloss.NewStyle().
+				Bold(true).
+				Padding(0, 2).
+				Margin(0, 1)
+
+	buttonStyle = buttonStyleNoBorder.
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("36"))
 
@@ -22,10 +24,12 @@ var (
 				BorderForeground(lipgloss.Color("240"))
 
 	// Compact button style for icon-only buttons
-	buttonCompactStyle = lipgloss.NewStyle().
-				Bold(true).
-				Padding(0, 1).
-				Margin(0).
+	buttonCompactStyleNoBorder = lipgloss.NewStyle().
+					Bold(true).
+					Padding(0, 1).
+					Margin(0)
+
+	buttonCompactStyle = buttonCompactStyleNoBorder.
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(lipgloss.Color("240"))
 )
@@ -35,12 +39,8 @@ type Button struct {
 	ID      string
 	Label   string
 	Primary bool
-}
-
-// isIconOnly checks if the button label is just an emoji/icon
-func (b *Button) isIconOnly() bool {
-	// Check if label is very short (likely just an emoji)
-	return len(b.Label) <= 4
+	Border  bool
+	Icon    bool
 }
 
 // Render renders the button without zones
@@ -48,8 +48,12 @@ func (b *Button) Render() string {
 	var style lipgloss.Style
 
 	// Use compact style for icon-only buttons
-	if b.isIconOnly() {
-		style = buttonCompactStyle
+	if b.Icon {
+		if b.Border {
+			style = buttonCompactStyle
+		} else {
+			style = buttonCompactStyleNoBorder
+		}
 	} else if b.Primary {
 		style = buttonPrimaryStyle
 	} else {
@@ -68,8 +72,12 @@ func (b *Button) RenderWithZone(zm *zone.Manager) string {
 	var style lipgloss.Style
 
 	// Use compact style for icon-only buttons
-	if b.isIconOnly() {
-		style = buttonCompactStyle
+	if b.Icon {
+		if b.Border {
+			style = buttonCompactStyle
+		} else {
+			style = buttonCompactStyleNoBorder
+		}
 	} else if b.Primary {
 		style = buttonPrimaryStyle
 	} else {

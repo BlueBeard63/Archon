@@ -44,14 +44,14 @@ func RenderNodesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		headerStyle := lipgloss.NewStyle().Bold(true).BorderStyle(lipgloss.NormalBorder()).BorderBottom(true).BorderForeground(lipgloss.Color("240"))
 		rowStyle := lipgloss.NewStyle().PaddingRight(2)
 
-		header := headerStyle.Render(fmt.Sprintf("%-20s %-15s %-28s %-10s", "Name", "IP Address", "API Endpoint", "Status"))
+		header := headerStyle.Render(fmt.Sprintf("%-20s %-15s %-28s %-10s %-45s", "Name", "IP Address", "API Endpoint", "Status", "Actions"))
 		content += header + "\n"
 
 		for _, node := range s.Nodes {
 			// Create row action buttons (icon only)
-			viewBtn := components.Button{ID: "view-node-" + node.ID.String(), Label: "👁️", Primary: false}
-			editBtn := components.Button{ID: "edit-node-" + node.ID.String(), Label: "✏️", Primary: false}
-			deleteBtn := components.Button{ID: "delete-node-" + node.ID.String(), Label: "🗑️", Primary: false}
+			viewBtn := components.Button{ID: "view-node-" + node.ID.String(), Label: "👁️", Primary: false, Border: false, Icon: true}
+			editBtn := components.Button{ID: "edit-node-" + node.ID.String(), Label: "✏️", Primary: false, Border: false, Icon: true}
+			deleteBtn := components.Button{ID: "delete-node-" + node.ID.String(), Label: "🗑️", Primary: false, Border: false, Icon: true}
 
 			var viewBtnStr, editBtnStr, deleteBtnStr string
 			if zm != nil {
@@ -66,7 +66,7 @@ func RenderNodesListWithZones(s *state.AppState, zm *zone.Manager) string {
 
 			actions := viewBtnStr + " " + editBtnStr + " " + deleteBtnStr
 
-			rowText := fmt.Sprintf("%-20s %-15s %-28s %-10s  %s",
+			rowText := fmt.Sprintf("%-20s %-15s %-28s %-10s %-45s",
 				truncateNode(node.Name, 20),
 				node.IPAddress.String(),
 				truncateNode(node.APIEndpoint, 28),

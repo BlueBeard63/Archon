@@ -48,7 +48,7 @@ func RenderDomainsListWithZones(s *state.AppState, zm *zone.Manager) string {
 		headerStyle := lipgloss.NewStyle().Bold(true).BorderStyle(lipgloss.NormalBorder()).BorderBottom(true).BorderForeground(lipgloss.Color("240"))
 		rowStyle := lipgloss.NewStyle().PaddingRight(2)
 
-		header := headerStyle.Render(fmt.Sprintf("%-30s %-15s %-8s %-8s", "Name", "Provider", "Records", "Traefik"))
+		header := headerStyle.Render(fmt.Sprintf("%-30s %-15s %-8s %-8s %-45s", "Name", "Provider", "Records", "Traefik", "Actions"))
 		content += header + "\n"
 
 		for _, domain := range s.Domains {
@@ -63,8 +63,8 @@ func RenderDomainsListWithZones(s *state.AppState, zm *zone.Manager) string {
 			}
 
 			// Create row action buttons (icon only)
-			editBtn := components.Button{ID: "edit-domain-" + domain.ID.String(), Label: "✏️", Primary: false}
-			deleteBtn := components.Button{ID: "delete-domain-" + domain.ID.String(), Label: "🗑️", Primary: false}
+			editBtn := components.Button{ID: "edit-domain-" + domain.ID.String(), Label: "✏️", Primary: false, Border: false, Icon: true}
+			deleteBtn := components.Button{ID: "delete-domain-" + domain.ID.String(), Label: "🗑️", Primary: false, Border: false, Icon: true}
 
 			var editBtnStr, deleteBtnStr string
 			if zm != nil {
@@ -77,7 +77,7 @@ func RenderDomainsListWithZones(s *state.AppState, zm *zone.Manager) string {
 
 			actions := editBtnStr + " " + deleteBtnStr
 
-			rowText := fmt.Sprintf("%-30s %-15s %-8s %-8s  %s",
+			rowText := fmt.Sprintf("%-30s %-15s %-8s %-8s %-45s",
 				truncate(domain.Name, 30),
 				truncate(providerName, 15),
 				fmt.Sprintf("%d", len(domain.DnsRecords)),
@@ -156,7 +156,7 @@ func RenderDomainCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	domainName := s.FormFields[0]
 	displayValue := domainName
 	if s.CurrentFieldIndex == 0 {
-		displayValue = domainName + "_"  // Show cursor
+		displayValue = domainName + "_" // Show cursor
 	}
 
 	fieldLine := "Domain Name: " + displayValue + "\n"
