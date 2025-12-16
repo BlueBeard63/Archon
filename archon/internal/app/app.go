@@ -43,6 +43,10 @@ func NewModel(configPath string) (*Model, error) {
 	appState.Nodes = cfg.Nodes
 	appState.ConfigPath = configPath
 	appState.AutoSave = cfg.Settings.AutoSave
+	appState.CloudflareAPIKey = cfg.Settings.CloudflareAPIKey
+	appState.CloudflareAPIToken = cfg.Settings.CloudflareAPIToken
+	appState.Route53AccessKey = cfg.Settings.Route53AccessKey
+	appState.Route53SecretKey = cfg.Settings.Route53SecretKey
 
 	return &Model{
 		state:        appState,

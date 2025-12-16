@@ -155,71 +155,96 @@ func RenderDomainsListWithZones(s *state.AppState, zm *zone.Manager) string {
 
 // RenderDomainCreate renders the domain creation form
 func RenderDomainCreate(s *state.AppState) string {
-	// Initialize form if needed
-	if len(s.FormFields) == 0 {
-		s.FormFields = []string{""}
-		s.CurrentFieldIndex = 0
-	}
-
-	title := titleStyle.Render("Create New Domain")
-	warning := notificationWarningStyle.Render(
-		"⚠ Domain will be created with Manual DNS configuration",
-	)
-
-	// Render input field
-	domainName := s.FormFields[0]
-	inputLabel := "Domain Name: "
-
-	// Show cursor if focused
-	displayValue := domainName
-	if s.CurrentFieldIndex == 0 {
-		displayValue = domainName + "_"
-	}
-
-	help := helpStyle.Render("Type domain name, press Enter to create, Esc to cancel")
-
-	return title + "\n\n" +
-		warning + "\n\n" +
-		inputLabel + displayValue + "\n\n" +
-		help + "\n\n" +
-		helpStyle.Render("To use Cloudflare or Route53, edit config.toml after creation")
+	return RenderDomainCreateWithZones(s, nil)
 }
 
 // RenderDomainCreateWithZones renders the domain creation form with clickable field
 func RenderDomainCreateWithZones(s *state.AppState, zm *zone.Manager) string {
-	// Fall back to regular rendering if no zone manager
-	if zm == nil {
-		return RenderDomainCreate(s)
-	}
-
-	// Initialize form if needed
-	if len(s.FormFields) == 0 {
-		s.FormFields = []string{""}
+	// Initialize form if needed (2 fields: domain name, provider)
+	if len(s.FormFields) != 2 {
+		s.FormFields = []string{"", "manual"} // Default to manual provider
 		s.CurrentFieldIndex = 0
 	}
 
 	title := titleStyle.Render("Create New Domain")
-	warning := notificationWarningStyle.Render(
-		"⚠ Domain will be created with Manual DNS configuration",
-	)
 
-	// Render input field with zone
-	domainName := s.FormFields[0]
-	displayValue := domainName
-	if s.CurrentFieldIndex == 0 {
-		displayValue = domainName + "_" // Show cursor
+	labels := []string{
+		"Domain Name:",
+		"DNS Provider:",
 	}
 
-	fieldLine := "Domain Name: " + displayValue + "\n"
-	inputField := zm.Mark("field:0", fieldLine)
+	// Render each field
+	var fields string
+	for i, label := range labels {
+		value := s.FormFields[i]
+		displayValue := value
 
-	help := helpStyle.Render("\nType domain name, press Enter to create, Esc to cancel")
+		// Show cursor if focused
+		if i == s.CurrentFieldIndex {
+			displayValue = value + "_"
+			label = "> " + label
+		} else {
+			label = "  " + label
+		}
 
-	return title + "\n\n" +
-		warning + "\n\n" +
-		inputField + "\n" +
-		help + "\n\n" +
-		helpStyle.Render("To use Cloudflare or Route53, edit config.toml after creation")
+		// Wrap the field line in a clickable zone
+		fieldLine := label + " " + displayValue + "\n"
+		if zm != nil {
+			fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
+		} else {
+			fields += fieldLine
+		}
+
+		// Show dropdown options for Provider field (index 1) when focused
+		if i == s.CurrentFieldIndex && i == 1 && s.DropdownOpen {
+			providers := []string{"manual", "cloudflare", "route53"}
+			dropdownOptions := renderProviderDropdown(providers, s.DropdownIndex)
+			fields += dropdownOptions + "\n"
+		}
+	}
+
+	helpText := "\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel"
+	if s.CurrentFieldIndex == 1 {
+		// On provider field
+		if s.DropdownOpen {
+			helpText = "\nUp/Down to select, Enter/Tab to confirm, Esc to cancel"
+		} else {
+			helpText = "\nPress Enter or Down to open provider dropdown"
+		}
+	}
+
+	help := helpStyle.Render(helpText)
+	note := helpStyle.Render("Note: Use arrow keys in Provider field to select DNS provider")
+
+	return title + "\n\n" + fields + "\n" + help + "\n" + note
+}
+
+// renderProviderDropdown renders a dropdown list of provider options
+func renderProviderDropdown(providers []string, selectedIndex int) string {
+	var options strings.Builder
+	options.WriteString("     ┌─────────────────────────────────┐\n")
+
+	providerLabels := map[string]string{
+		"manual":     "Manual DNS",
+		"cloudflare": "Cloudflare",
+		"route53":    "AWS Route53",
+	}
+
+	for i, provider := range providers {
+		label := providerLabels[provider]
+		if label == "" {
+			label = provider
+		}
+
+		if i == selectedIndex {
+			options.WriteString(fmt.Sprintf("     │ ▶ %-29s │\n", label))
+		} else {
+			options.WriteString(fmt.Sprintf("     │   %-29s │\n", label))
+		}
+	}
+
+	options.WriteString("     └─────────────────────────────────┘")
+	return options.String()
 }
 
 // RenderDomainEdit renders the domain edit form
@@ -242,34 +267,67 @@ func RenderDomainEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		return titleStyle.Render("Edit Domain") + "\n\n" + "Domain not found\n\n" + helpStyle.Render("Press Esc to go back")
 	}
 
-	// Initialize form if needed with current domain name
-	if len(s.FormFields) == 0 {
-		s.FormFields = []string{domain.Name}
+	// Initialize form if needed with current domain name and provider
+	if len(s.FormFields) != 2 {
+		providerType := string(domain.DnsProvider.Type)
+		if providerType == "" {
+			providerType = "manual"
+		}
+		s.FormFields = []string{domain.Name, providerType}
 		s.CurrentFieldIndex = 0
 	}
 
 	title := titleStyle.Render("Edit Domain: " + domain.Name)
 
-	// Render input field
-	domainName := s.FormFields[0]
-	displayValue := domainName
-	if s.CurrentFieldIndex == 0 {
-		displayValue = domainName + "_"
+	labels := []string{
+		"Domain Name:",
+		"DNS Provider:",
 	}
 
-	fieldLine := "Domain Name: " + displayValue + "\n"
-	var inputField string
-	if zm != nil {
-		inputField = zm.Mark("field:0", fieldLine)
-	} else {
-		inputField = fieldLine
+	// Render each field
+	var fields string
+	for i, label := range labels {
+		value := s.FormFields[i]
+		displayValue := value
+
+		// Show cursor if focused
+		if i == s.CurrentFieldIndex {
+			displayValue = value + "_"
+			label = "> " + label
+		} else {
+			label = "  " + label
+		}
+
+		// Wrap the field line in a clickable zone
+		fieldLine := label + " " + displayValue + "\n"
+		if zm != nil {
+			fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
+		} else {
+			fields += fieldLine
+		}
+
+		// Show dropdown options for Provider field (index 1) when focused
+		if i == s.CurrentFieldIndex && i == 1 && s.DropdownOpen {
+			providers := []string{"manual", "cloudflare", "route53"}
+			dropdownOptions := renderProviderDropdown(providers, s.DropdownIndex)
+			fields += dropdownOptions + "\n"
+		}
 	}
 
-	help := helpStyle.Render("\nType domain name, press Enter to save, Esc to cancel")
+	helpText := "\nTab/Shift+Tab to navigate, Enter to save, Esc to cancel"
+	if s.CurrentFieldIndex == 1 {
+		// On provider field
+		if s.DropdownOpen {
+			helpText = "\nUp/Down to select, Enter/Tab to confirm, Esc to cancel"
+		} else {
+			helpText = "\nPress Enter or Down to open provider dropdown"
+		}
+	}
 
-	return title + "\n\n" +
-		inputField + "\n" +
-		help
+	help := helpStyle.Render(helpText)
+	note := helpStyle.Render("Note: Changing provider will require re-configuring DNS settings")
+
+	return title + "\n\n" + fields + "\n" + help + "\n" + note
 }
 
 // RenderDomainDnsRecords renders DNS records for a domain

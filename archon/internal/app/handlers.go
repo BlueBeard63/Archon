@@ -308,26 +308,140 @@ func (m Model) handleDomainsListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleDomainCreateKeys handles keys on the domain creation form
 func (m Model) handleDomainCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Check if we're on provider field (index 1)
+	isProviderField := m.state.CurrentFieldIndex == 1
+
+	// Handle dropdown-specific keys when dropdown is open
+	if m.state.DropdownOpen && isProviderField {
+		providers := []string{"manual", "cloudflare", "route53"}
+
+		switch msg.Type {
+		case tea.KeyUp:
+			// Navigate up in dropdown
+			if m.state.DropdownIndex > 0 {
+				m.state.DropdownIndex--
+			}
+			return m, nil
+
+		case tea.KeyDown:
+			// Navigate down in dropdown
+			if m.state.DropdownIndex < len(providers)-1 {
+				m.state.DropdownIndex++
+			}
+			return m, nil
+
+		case tea.KeyEnter, tea.KeyTab:
+			// Confirm selection and close dropdown
+			m.state.FormFields[1] = providers[m.state.DropdownIndex]
+			m.state.DropdownOpen = false
+
+			// If Tab, move to next field or wrap around
+			if msg.Type == tea.KeyTab {
+				m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % len(m.state.FormFields)
+			}
+			return m, nil
+
+		case tea.KeyEsc:
+			// Close dropdown without selecting
+			m.state.DropdownOpen = false
+			return m, nil
+
+		case tea.KeyBackspace, tea.KeyRunes, tea.KeySpace:
+			// Close dropdown and allow manual input
+			m.state.DropdownOpen = false
+			// Fall through to normal input handling
+		}
+	}
+
+	// Normal field input handling
 	switch msg.Type {
+	case tea.KeyUp:
+		// Open dropdown on up arrow if on provider field and not open
+		if isProviderField && !m.state.DropdownOpen {
+			m.state.DropdownOpen = true
+			// Find current provider in list
+			providers := []string{"manual", "cloudflare", "route53"}
+			for i, p := range providers {
+				if p == m.state.FormFields[1] {
+					m.state.DropdownIndex = i
+					break
+				}
+			}
+			return m, nil
+		}
+
+	case tea.KeyDown:
+		// Open dropdown on down arrow if on provider field and not open
+		if isProviderField && !m.state.DropdownOpen {
+			m.state.DropdownOpen = true
+			// Find current provider in list
+			providers := []string{"manual", "cloudflare", "route53"}
+			for i, p := range providers {
+				if p == m.state.FormFields[1] {
+					m.state.DropdownIndex = i
+					break
+				}
+			}
+			return m, nil
+		}
+
 	case tea.KeySpace:
-		// Add space to domain name field
-		m.state.FormFields[0] += " "
+		// Add space to current field (only domain name field 0)
+		if m.state.CurrentFieldIndex == 0 {
+			m.state.FormFields[0] += " "
+		}
 		return m, nil
 
 	case tea.KeyRunes:
-		// Add character to domain name field
-		m.state.FormFields[0] += string(msg.Runes)
+		// Add character to domain name field only
+		if m.state.CurrentFieldIndex == 0 {
+			m.state.FormFields[0] += string(msg.Runes)
+		}
 		return m, nil
 
 	case tea.KeyBackspace:
-		// Remove last character
-		if len(m.state.FormFields[0]) > 0 {
+		// Remove last character from domain name field only
+		if m.state.CurrentFieldIndex == 0 && len(m.state.FormFields[0]) > 0 {
 			m.state.FormFields[0] = m.state.FormFields[0][:len(m.state.FormFields[0])-1]
 		}
 		return m, nil
 
+	case tea.KeyTab:
+		// Close dropdown if open
+		if m.state.DropdownOpen {
+			m.state.DropdownOpen = false
+		}
+		// Move to next field
+		m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % len(m.state.FormFields)
+		return m, nil
+
+	case tea.KeyShiftTab:
+		// Close dropdown if open
+		if m.state.DropdownOpen {
+			m.state.DropdownOpen = false
+		}
+		// Move to previous field
+		m.state.CurrentFieldIndex--
+		if m.state.CurrentFieldIndex < 0 {
+			m.state.CurrentFieldIndex = len(m.state.FormFields) - 1
+		}
+		return m, nil
+
 	case tea.KeyEnter:
-		// Submit form
+		// If on provider field and not open, open it
+		if isProviderField && !m.state.DropdownOpen {
+			m.state.DropdownOpen = true
+			// Find current provider in list
+			providers := []string{"manual", "cloudflare", "route53"}
+			for i, p := range providers {
+				if p == m.state.FormFields[1] {
+					m.state.DropdownIndex = i
+					break
+				}
+			}
+			return m, nil
+		}
+		// Otherwise submit form
 		return m.handleDomainCreateSubmit()
 	}
 
@@ -336,26 +450,140 @@ func (m Model) handleDomainCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleDomainEditKeys handles keys on the domain edit form
 func (m Model) handleDomainEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Check if we're on provider field (index 1)
+	isProviderField := m.state.CurrentFieldIndex == 1
+
+	// Handle dropdown-specific keys when dropdown is open
+	if m.state.DropdownOpen && isProviderField {
+		providers := []string{"manual", "cloudflare", "route53"}
+
+		switch msg.Type {
+		case tea.KeyUp:
+			// Navigate up in dropdown
+			if m.state.DropdownIndex > 0 {
+				m.state.DropdownIndex--
+			}
+			return m, nil
+
+		case tea.KeyDown:
+			// Navigate down in dropdown
+			if m.state.DropdownIndex < len(providers)-1 {
+				m.state.DropdownIndex++
+			}
+			return m, nil
+
+		case tea.KeyEnter, tea.KeyTab:
+			// Confirm selection and close dropdown
+			m.state.FormFields[1] = providers[m.state.DropdownIndex]
+			m.state.DropdownOpen = false
+
+			// If Tab, move to next field or wrap around
+			if msg.Type == tea.KeyTab {
+				m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % len(m.state.FormFields)
+			}
+			return m, nil
+
+		case tea.KeyEsc:
+			// Close dropdown without selecting
+			m.state.DropdownOpen = false
+			return m, nil
+
+		case tea.KeyBackspace, tea.KeyRunes, tea.KeySpace:
+			// Close dropdown and allow manual input
+			m.state.DropdownOpen = false
+			// Fall through to normal input handling
+		}
+	}
+
+	// Normal field input handling
 	switch msg.Type {
+	case tea.KeyUp:
+		// Open dropdown on up arrow if on provider field and not open
+		if isProviderField && !m.state.DropdownOpen {
+			m.state.DropdownOpen = true
+			// Find current provider in list
+			providers := []string{"manual", "cloudflare", "route53"}
+			for i, p := range providers {
+				if p == m.state.FormFields[1] {
+					m.state.DropdownIndex = i
+					break
+				}
+			}
+			return m, nil
+		}
+
+	case tea.KeyDown:
+		// Open dropdown on down arrow if on provider field and not open
+		if isProviderField && !m.state.DropdownOpen {
+			m.state.DropdownOpen = true
+			// Find current provider in list
+			providers := []string{"manual", "cloudflare", "route53"}
+			for i, p := range providers {
+				if p == m.state.FormFields[1] {
+					m.state.DropdownIndex = i
+					break
+				}
+			}
+			return m, nil
+		}
+
 	case tea.KeySpace:
-		// Add space to domain name field
-		m.state.FormFields[0] += " "
+		// Add space to current field (only domain name field 0)
+		if m.state.CurrentFieldIndex == 0 {
+			m.state.FormFields[0] += " "
+		}
 		return m, nil
 
 	case tea.KeyRunes:
-		// Add character to domain name field
-		m.state.FormFields[0] += string(msg.Runes)
+		// Add character to domain name field only
+		if m.state.CurrentFieldIndex == 0 {
+			m.state.FormFields[0] += string(msg.Runes)
+		}
 		return m, nil
 
 	case tea.KeyBackspace:
-		// Remove last character
-		if len(m.state.FormFields[0]) > 0 {
+		// Remove last character from domain name field only
+		if m.state.CurrentFieldIndex == 0 && len(m.state.FormFields[0]) > 0 {
 			m.state.FormFields[0] = m.state.FormFields[0][:len(m.state.FormFields[0])-1]
 		}
 		return m, nil
 
+	case tea.KeyTab:
+		// Close dropdown if open
+		if m.state.DropdownOpen {
+			m.state.DropdownOpen = false
+		}
+		// Move to next field
+		m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % len(m.state.FormFields)
+		return m, nil
+
+	case tea.KeyShiftTab:
+		// Close dropdown if open
+		if m.state.DropdownOpen {
+			m.state.DropdownOpen = false
+		}
+		// Move to previous field
+		m.state.CurrentFieldIndex--
+		if m.state.CurrentFieldIndex < 0 {
+			m.state.CurrentFieldIndex = len(m.state.FormFields) - 1
+		}
+		return m, nil
+
 	case tea.KeyEnter:
-		// Submit form
+		// If on provider field and not open, open it
+		if isProviderField && !m.state.DropdownOpen {
+			m.state.DropdownOpen = true
+			// Find current provider in list
+			providers := []string{"manual", "cloudflare", "route53"}
+			for i, p := range providers {
+				if p == m.state.FormFields[1] {
+					m.state.DropdownIndex = i
+					break
+				}
+			}
+			return m, nil
+		}
+		// Otherwise submit form
 		return m.handleDomainEditSubmit()
 	}
 
@@ -714,6 +942,7 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 // handleDomainCreateSubmit processes domain creation form submission
 func (m Model) handleDomainCreateSubmit() (tea.Model, tea.Cmd) {
 	domainName := m.state.FormFields[0]
+	providerType := m.state.FormFields[1]
 
 	// Validate domain name is not empty
 	if domainName == "" {
@@ -729,15 +958,21 @@ func (m Model) handleDomainCreateSubmit() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Create new domain with manual DNS provider
-	provider := models.DnsProvider{
-		Type: models.DnsProviderManual,
+	// Create DNS provider based on type
+	var provider models.DnsProvider
+	switch providerType {
+	case "cloudflare":
+		provider = models.DnsProvider{Type: models.DnsProviderCloudflare}
+	case "route53":
+		provider = models.DnsProvider{Type: models.DnsProviderRoute53}
+	default:
+		provider = models.DnsProvider{Type: models.DnsProviderManual}
 	}
-	domain := models.NewDomain(domainName, provider)
 
+	domain := models.NewDomain(domainName, provider)
 	m.state.Domains = append(m.state.Domains, *domain)
 
-	m.state.AddNotification("Domain created: "+domainName+" (Manual DNS)", "success")
+	m.state.AddNotification("Domain created: "+domainName+" ("+domain.ProviderName()+")", "success")
 
 	// Auto-save config if enabled
 	if m.state.AutoSave {
@@ -754,6 +989,7 @@ func (m Model) handleDomainCreateSubmit() (tea.Model, tea.Cmd) {
 // handleDomainEditSubmit processes domain edit form submission
 func (m Model) handleDomainEditSubmit() (tea.Model, tea.Cmd) {
 	newDomainName := m.state.FormFields[0]
+	providerType := m.state.FormFields[1]
 
 	// Validate domain name is not empty
 	if newDomainName == "" {
@@ -777,6 +1013,7 @@ func (m Model) handleDomainEditSubmit() (tea.Model, tea.Cmd) {
 	}
 
 	oldName := m.state.Domains[domainIndex].Name
+	oldProviderType := string(m.state.Domains[domainIndex].DnsProvider.Type)
 
 	// Check for duplicates (excluding current domain)
 	for i, domain := range m.state.Domains {
@@ -789,7 +1026,47 @@ func (m Model) handleDomainEditSubmit() (tea.Model, tea.Cmd) {
 	// Update domain name
 	m.state.Domains[domainIndex].Name = newDomainName
 
-	m.state.AddNotification("Domain updated: "+oldName+" → "+newDomainName, "success")
+	// Update DNS provider based on type
+	var provider models.DnsProvider
+	switch providerType {
+	case "cloudflare":
+		provider = models.DnsProvider{Type: models.DnsProviderCloudflare}
+	case "route53":
+		provider = models.DnsProvider{Type: models.DnsProviderRoute53}
+	default:
+		provider = models.DnsProvider{Type: models.DnsProviderManual}
+	}
+	m.state.Domains[domainIndex].DnsProvider = provider
+
+	// Build notification message
+	var changes []string
+	if oldName != newDomainName {
+		changes = append(changes, fmt.Sprintf("name: %s → %s", oldName, newDomainName))
+	}
+	if oldProviderType != providerType {
+		providerLabels := map[string]string{
+			"manual":     "Manual DNS",
+			"cloudflare": "Cloudflare",
+			"route53":    "AWS Route53",
+		}
+		oldLabel := providerLabels[oldProviderType]
+		if oldLabel == "" {
+			oldLabel = oldProviderType
+		}
+		newLabel := providerLabels[providerType]
+		if newLabel == "" {
+			newLabel = providerType
+		}
+		changes = append(changes, fmt.Sprintf("provider: %s → %s", oldLabel, newLabel))
+	}
+
+	var message string
+	if len(changes) > 0 {
+		message = "Domain updated: " + strings.Join(changes, ", ")
+	} else {
+		message = "Domain updated (no changes)"
+	}
+	m.state.AddNotification(message, "success")
 
 	// Auto-save config if enabled
 	if m.state.AutoSave {
@@ -950,6 +1227,10 @@ func (m Model) saveConfigSync() error {
 			HealthCheckIntervalSecs: 60,
 			DefaultDnsTTL:           3600,
 			Theme:                   "default",
+			CloudflareAPIKey:        m.state.CloudflareAPIKey,
+			CloudflareAPIToken:      m.state.CloudflareAPIToken,
+			Route53AccessKey:        m.state.Route53AccessKey,
+			Route53SecretKey:        m.state.Route53SecretKey,
 		},
 	}
 
