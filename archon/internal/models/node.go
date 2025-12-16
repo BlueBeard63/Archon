@@ -192,15 +192,23 @@ network = "archon-net"
 #
 # 5. Create systemd service at /etc/systemd/system/archon-node.service:
 #      [Unit]
-#      Description=Archon Node Server
-#      After=network.target docker.service
+#      Description=Archon Node Server - Docker Site Management
+#      After=network-online.target docker.service
+#      Wants=network-online.target
+#      Requires=docker.service
 #
 #      [Service]
 #      Type=simple
 #      User=root
+#      Group=root
 #      ExecStart=/usr/local/bin/archon-node --config /etc/archon/node-config.toml
 #      Restart=on-failure
 #      RestartSec=5s
+#      LimitNOFILE=65536
+#      StandardOutput=journal
+#      StandardError=journal
+#      SyslogIdentifier=archon-node
+#      WorkingDirectory=/var/lib/archon
 #
 #      [Install]
 #      WantedBy=multi-user.target

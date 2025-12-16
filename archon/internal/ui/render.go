@@ -28,12 +28,16 @@ func Render(s *state.AppState) string {
 	// Render main content based on current screen
 	content := RenderScreen(s, nil)
 
+	// Render status bar with notifications
+	statusBar := components.RenderStatusBar(s, s.WindowWidth)
+
 	// Join all sections vertically
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		header,
 		tabs,
 		content,
+		statusBar,
 	)
 }
 
@@ -54,12 +58,16 @@ func RenderWithZones(s *state.AppState, zm *zone.Manager) string {
 	// Render main content based on current screen with zones
 	content := RenderScreen(s, zm)
 
+	// Render status bar with notifications
+	statusBar := components.RenderStatusBar(s, s.WindowWidth)
+
 	// Join all sections vertically
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		header,
 		tabs,
 		content,
+		statusBar,
 	)
 }
 
@@ -92,6 +100,8 @@ func RenderScreen(s *state.AppState, zm *zone.Manager) string {
 		return screens.RenderNodeEditWithZones(s, zm)
 	case state.ScreenNodeConfig:
 		return screens.RenderNodeConfig(s)
+	case state.ScreenNodeConfigSave:
+		return screens.RenderNodeConfigSaveWithZones(s, zm)
 	case state.ScreenSettings:
 		return screens.RenderSettingsWithZones(s, zm)
 	case state.ScreenHelp:

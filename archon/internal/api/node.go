@@ -42,6 +42,7 @@ func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, 
 		EnvironmentVars map[string]string `json:"environment_vars"`
 		Port            int               `json:"port"`
 		SSLEnabled      bool              `json:"ssl_enabled"`
+		SSLEmail        string            `json:"ssl_email,omitempty"`
 		ConfigFiles     []models.ConfigFile `json:"config_files"`
 		TraefikLabels   map[string]string `json:"traefik_labels,omitempty"`
 	}{
@@ -52,6 +53,7 @@ func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, 
 		EnvironmentVars: site.EnvironmentVars,
 		Port:            site.Port,
 		SSLEnabled:      site.SSLEnabled,
+		SSLEmail:        site.SSLEmail,
 		ConfigFiles:     site.ConfigFiles,
 		TraefikLabels:   site.GenerateTraefikLabels(domainName),
 	}

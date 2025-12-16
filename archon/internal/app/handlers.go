@@ -19,6 +19,89 @@ import (
 // Keyboard Event Handlers
 // ============================================================================
 
+// handleTextInput handles text input for a form field with cursor support
+func (m *Model) handleTextInput(msg tea.KeyMsg, fieldIndex int) bool {
+	if fieldIndex >= len(m.state.FormFields) {
+		return false
+	}
+
+	value := m.state.FormFields[fieldIndex]
+	cursor := m.state.CursorPosition
+
+	// Ensure cursor is within bounds
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(value) {
+		cursor = len(value)
+	}
+
+	switch msg.Type {
+	case tea.KeyLeft:
+		// Move cursor left
+		if cursor > 0 {
+			m.state.CursorPosition--
+		}
+		return true
+
+	case tea.KeyRight:
+		// Move cursor right
+		if cursor < len(value) {
+			m.state.CursorPosition++
+		}
+		return true
+
+	case tea.KeyHome, tea.KeyCtrlA:
+		// Move cursor to start
+		m.state.CursorPosition = 0
+		return true
+
+	case tea.KeyEnd, tea.KeyCtrlE:
+		// Move cursor to end
+		m.state.CursorPosition = len(value)
+		return true
+
+	case tea.KeyBackspace:
+		// Delete character before cursor
+		if cursor > 0 {
+			m.state.FormFields[fieldIndex] = value[:cursor-1] + value[cursor:]
+			m.state.CursorPosition--
+		}
+		return true
+
+	case tea.KeyDelete:
+		// Delete character at cursor
+		if cursor < len(value) {
+			m.state.FormFields[fieldIndex] = value[:cursor] + value[cursor+1:]
+		}
+		return true
+
+	case tea.KeySpace:
+		// Insert space at cursor
+		m.state.FormFields[fieldIndex] = value[:cursor] + " " + value[cursor:]
+		m.state.CursorPosition++
+		return true
+
+	case tea.KeyRunes:
+		// Insert character at cursor
+		m.state.FormFields[fieldIndex] = value[:cursor] + string(msg.Runes) + value[cursor:]
+		m.state.CursorPosition++
+		return true
+	}
+
+	return false
+}
+
+// setFieldAndResetCursor sets the current field index and moves cursor to end
+func (m *Model) setFieldAndResetCursor(fieldIndex int) {
+	m.state.CurrentFieldIndex = fieldIndex
+	if fieldIndex < len(m.state.FormFields) {
+		m.state.CursorPosition = len(m.state.FormFields[fieldIndex])
+	} else {
+		m.state.CursorPosition = 0
+	}
+}
+
 // handleKeyPress routes keyboard events to screen-specific handlers
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Check if we're on a form screen (prioritize form input)
@@ -28,6 +111,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state.CurrentScreen == state.ScreenDomainEdit ||
 		m.state.CurrentScreen == state.ScreenNodeCreate ||
 		m.state.CurrentScreen == state.ScreenNodeEdit ||
+		m.state.CurrentScreen == state.ScreenNodeConfigSave ||
 		m.state.CurrentScreen == state.ScreenSettings
 
 	// Critical global key bindings (work on all screens)
@@ -89,6 +173,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSettingsKeys(msg)
 	case state.ScreenNodeConfig:
 		return m.handleNodeConfigKeys(msg)
+	case state.ScreenNodeConfigSave:
+		return m.handleNodeConfigSaveKeys(msg)
 	case state.ScreenHelp:
 		return m.handleHelpKeys(msg)
 	}
@@ -121,6 +207,15 @@ func (m Model) handleSitesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "n", "c":
 		m.state.NavigateTo(state.ScreenSiteCreate)
+		return m, nil
+
+	case " ", "enter":
+		// Deploy selected site
+		if len(m.state.Sites) > 0 && m.state.SitesListIndex >= 0 && m.state.SitesListIndex < len(m.state.Sites) {
+			site := m.state.Sites[m.state.SitesListIndex]
+			m.state.AddNotification("Deploying site: "+site.Name, "info")
+			return m, m.spawnDeploySite(site.ID)
+		}
 		return m, nil
 
 	case "e":
@@ -895,52 +990,118 @@ func (m Model) handleNodeConfigKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "s":
-		// TODO: Save config to file
-		m.state.AddNotification("Save to file not yet implemented", "info")
+		// Save config to file
+		return m.handleSaveNodeConfig()
+	}
+
+	return m, nil
+}
+
+// handleNodeConfigSaveKeys handles keys on the save dialog screen
+func (m Model) handleNodeConfigSaveKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Try text input with cursor support first
+	if m.handleTextInput(msg, 0) {
 		return m, nil
 	}
+
+	// Handle non-text-input keys
+	switch msg.Type {
+	case tea.KeyEnter:
+		// Save to the specified path
+		return m.handleSaveNodeConfigSubmit()
+	}
+
+	return m, nil
+}
+
+// handleSaveNodeConfig navigates to the save dialog
+func (m Model) handleSaveNodeConfig() (tea.Model, tea.Cmd) {
+	// Navigate to save dialog screen
+	m.state.NavigateTo(state.ScreenNodeConfigSave)
+	return m, nil
+}
+
+// handleSaveNodeConfigSubmit saves the node config to the user-specified path
+func (m Model) handleSaveNodeConfigSubmit() (tea.Model, tea.Cmd) {
+	// Find the selected node
+	var node *models.Node
+	for i := range m.state.Nodes {
+		if m.state.Nodes[i].ID == m.state.SelectedNodeID {
+			node = &m.state.Nodes[i]
+			break
+		}
+	}
+
+	if node == nil {
+		m.state.AddNotification("Node not found", "error")
+		m.state.NavigateBack()
+		return m, nil
+	}
+
+	// Get the file path from form field
+	savePath := m.state.FormFields[0]
+	if savePath == "" {
+		m.state.AddNotification("File path is required", "error")
+		return m, nil
+	}
+
+	// Expand ~ to home directory
+	if strings.HasPrefix(savePath, "~") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			m.state.AddNotification("Failed to get home directory: "+err.Error(), "error")
+			return m, nil
+		}
+		savePath = strings.Replace(savePath, "~", homeDir, 1)
+	}
+
+	// Generate config content
+	configContent := node.GenerateNodeConfigTOML()
+
+	// Create parent directories if they don't exist
+	dir := filepath.Dir(savePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		m.state.AddNotification("Failed to create directory: "+err.Error(), "error")
+		return m, nil
+	}
+
+	// Write to file
+	err := os.WriteFile(savePath, []byte(configContent), 0644)
+	if err != nil {
+		m.state.AddNotification("Failed to save config: "+err.Error(), "error")
+		return m, nil
+	}
+
+	m.state.AddNotification(fmt.Sprintf("Config saved to %s", savePath), "success")
+
+	// Navigate back to config screen
+	m.state.NavigateBack()
 
 	return m, nil
 }
 
 // handleSettingsKeys handles keys on the settings form
 func (m Model) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Try text input with cursor support first
+	if m.handleTextInput(msg, m.state.CurrentFieldIndex) {
+		return m, nil
+	}
+
+	// Handle non-text-input keys
 	switch msg.Type {
-	case tea.KeySpace:
-		// Add space to current field
-		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
-			m.state.FormFields[m.state.CurrentFieldIndex] += " "
-		}
-		return m, nil
-
-	case tea.KeyRunes:
-		// Add character to current field
-		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
-			m.state.FormFields[m.state.CurrentFieldIndex] += string(msg.Runes)
-		}
-		return m, nil
-
-	case tea.KeyBackspace:
-		// Remove last character from current field
-		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
-			value := m.state.FormFields[m.state.CurrentFieldIndex]
-			if len(value) > 0 {
-				m.state.FormFields[m.state.CurrentFieldIndex] = value[:len(value)-1]
-			}
-		}
-		return m, nil
-
 	case tea.KeyTab:
 		// Move to next field
-		m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % len(m.state.FormFields)
+		nextField := (m.state.CurrentFieldIndex + 1) % len(m.state.FormFields)
+		m.setFieldAndResetCursor(nextField)
 		return m, nil
 
 	case tea.KeyShiftTab:
 		// Move to previous field
-		m.state.CurrentFieldIndex--
-		if m.state.CurrentFieldIndex < 0 {
-			m.state.CurrentFieldIndex = len(m.state.FormFields) - 1
+		prevField := m.state.CurrentFieldIndex - 1
+		if prevField < 0 {
+			prevField = len(m.state.FormFields) - 1
 		}
+		m.setFieldAndResetCursor(prevField)
 		return m, nil
 
 	case tea.KeyEnter:
@@ -1117,9 +1278,14 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 	// Create new site
 	site := models.NewSite(m.state.FormFields[0], domainID, nodeID, m.state.FormFields[3], port)
 
-	// Parse environment variables (field 5) if provided
+	// Set SSL email (field 5) if provided
 	if m.state.FormFields[5] != "" {
-		envVars := strings.Split(m.state.FormFields[5], "|")
+		site.SSLEmail = strings.TrimSpace(m.state.FormFields[5])
+	}
+
+	// Parse environment variables (field 6) if provided
+	if m.state.FormFields[6] != "" {
+		envVars := strings.Split(m.state.FormFields[6], "|")
 		for _, envVar := range envVars {
 			envVar = strings.TrimSpace(envVar)
 			if envVar == "" {
@@ -1136,9 +1302,9 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Load config file (field 6) if provided
-	if m.state.FormFields[6] != "" {
-		configPath := strings.TrimSpace(m.state.FormFields[6])
+	// Load config file (field 7) if provided
+	if m.state.FormFields[7] != "" {
+		configPath := strings.TrimSpace(m.state.FormFields[7])
 		content, err := os.ReadFile(configPath)
 		if err != nil {
 			m.state.AddNotification("Failed to read config file: "+err.Error(), "warning")
@@ -1616,11 +1782,21 @@ func (m Model) saveConfigSync() error {
 // Delete Handlers
 // ============================================================================
 
-// handleDeleteSite removes a site from the state
+// handleDeleteSite removes a site from the state and filesystem
 func (m Model) handleDeleteSite(siteID uuid.UUID) (tea.Model, tea.Cmd) {
 	// Find and remove site
 	for i, site := range m.state.Sites {
 		if site.ID == siteID {
+			// Get domain name for site directory structure
+			domain := m.state.GetDomainByID(site.DomainID)
+			if domain != nil {
+				// Delete site files from filesystem
+				if err := m.configLoader.DeleteSite(site.Name, domain.Name); err != nil {
+					m.state.AddNotification("Failed to delete site files: "+err.Error(), "error")
+					// Continue with state removal anyway
+				}
+			}
+
 			// Remove from slice
 			m.state.Sites = append(m.state.Sites[:i], m.state.Sites[i+1:]...)
 			m.state.AddNotification("Deleted site: "+site.Name, "success")
@@ -1672,7 +1848,7 @@ func (m Model) handleDeleteDomain(domainID uuid.UUID) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleDeleteNode removes a node from the state
+// handleDeleteNode removes a node from the state and filesystem
 func (m Model) handleDeleteNode(nodeID uuid.UUID) (tea.Model, tea.Cmd) {
 	// Check if node is used by any sites
 	for _, site := range m.state.Sites {
@@ -1685,6 +1861,12 @@ func (m Model) handleDeleteNode(nodeID uuid.UUID) (tea.Model, tea.Cmd) {
 	// Find and remove node
 	for i, node := range m.state.Nodes {
 		if node.ID == nodeID {
+			// Delete node files from filesystem
+			if err := m.configLoader.DeleteNode(node.Name); err != nil {
+				m.state.AddNotification("Failed to delete node files: "+err.Error(), "error")
+				// Continue with state removal anyway
+			}
+
 			// Remove from slice
 			m.state.Nodes = append(m.state.Nodes[:i], m.state.Nodes[i+1:]...)
 			m.state.AddNotification("Deleted node: "+node.Name, "success")

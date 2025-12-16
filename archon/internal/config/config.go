@@ -37,4 +37,6 @@ func DefaultSettings() Settings {
 type ConfigLoader interface {
 	Load(path string) (*Config, error)
 	Save(path string, config *Config) error
+	DeleteSite(siteName, domainName string) error
+	DeleteNode(nodeName string) error
 }

@@ -26,6 +26,7 @@ type Site struct {
 	Port            int               `json:"port" toml:"port"`                             // Legacy: single port (kept for backward compatibility)
 	DomainMappings  []DomainMapping   `json:"domain_mappings,omitempty" toml:"domain_mappings,omitempty"` // New: multiple domain-port mappings
 	SSLEnabled      bool              `json:"ssl_enabled" toml:"ssl_enabled"`
+	SSLEmail        string            `json:"ssl_email,omitempty" toml:"ssl_email,omitempty"` // Email for Let's Encrypt certificate registration
 	ConfigFiles     []ConfigFile      `json:"config_files" toml:"config_files"`
 	Status          SiteStatus        `json:"status" toml:"status"`
 	CreatedAt       time.Time         `json:"created_at" toml:"created_at"`

@@ -111,6 +111,13 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		actionsColumn.WriteString("\n\n") // Header padding
 
 		for _, site := range s.Sites {
+			deployBtn := components.Button{
+				ID:      "deploy-site-" + site.ID.String(),
+				Label:   "🚀",
+				Primary: false,
+				Border:  false,
+				Icon:    true,
+			}
 			editBtn := components.Button{
 				ID:      "edit-site-" + site.ID.String(),
 				Label:   "✏️",
@@ -128,9 +135,9 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 
 			var actionLine string
 			if zm != nil {
-				actionLine = editBtn.RenderWithZone(zm) + " " + deleteBtn.RenderWithZone(zm)
+				actionLine = deployBtn.RenderWithZone(zm) + " " + editBtn.RenderWithZone(zm) + " " + deleteBtn.RenderWithZone(zm)
 			} else {
-				actionLine = editBtn.Render() + " " + deleteBtn.Render()
+				actionLine = deployBtn.Render() + " " + editBtn.Render() + " " + deleteBtn.Render()
 			}
 
 			actionsColumn.WriteString(actionLine + "\n")
@@ -163,7 +170,7 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 	}
 
-	help := helpStyle.Render("\n\nPress j/k or arrows to navigate • e to edit • d to delete • n to create • Esc to go back")
+	help := helpStyle.Render("\n\nPress j/k or arrows to navigate • Space/Enter to deploy • e to edit • d to delete • n to create • Esc to go back")
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -194,9 +201,9 @@ func RenderSiteCreate(s *state.AppState) string {
 
 // RenderSiteCreateWithZones renders the site creation form with clickable fields
 func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
-	// Initialize form if needed (7 fields: basic + env vars + config file)
-	if len(s.FormFields) != 7 {
-		s.FormFields = []string{"", "", "", "", "8080", "", ""}
+	// Initialize form if needed (8 fields: basic + SSL email + env vars + config file)
+	if len(s.FormFields) != 8 {
+		s.FormFields = []string{"", "", "", "", "8080", "", "", ""}
 		s.CurrentFieldIndex = 0
 	}
 
@@ -208,6 +215,7 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		"Node:",
 		"Docker Image:",
 		"Port:",
+		"SSL Email (for Let's Encrypt):",
 		"Env Vars (KEY=VALUE, one per line):",
 		"Config File Path (optional):",
 	}
@@ -255,8 +263,10 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
 		}
 	} else if s.CurrentFieldIndex == 5 {
-		helpText = "\nEnter env vars as KEY=VALUE (use | to separate multiple vars)"
+		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
 	} else if s.CurrentFieldIndex == 6 {
+		helpText = "\nEnter env vars as KEY=VALUE (use | to separate multiple vars)"
+	} else if s.CurrentFieldIndex == 7 {
 		helpText = "\nEnter full path to config file (will be loaded when site is created)"
 	}
 

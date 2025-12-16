@@ -56,7 +56,15 @@ func RenderSettingsWithZones(s *state.AppState, zm *zone.Manager) string {
 
 		// Show cursor if focused
 		if i == s.CurrentFieldIndex {
-			displayValue = value + "_"
+			// Show cursor at position
+			cursor := s.CursorPosition
+			if cursor < 0 {
+				cursor = 0
+			}
+			if cursor > len(value) {
+				cursor = len(value)
+			}
+			displayValue = value[:cursor] + "_" + value[cursor:]
 			label = "> " + label // Show arrow for focused field
 		} else {
 			label = "  " + label

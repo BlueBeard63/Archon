@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -473,6 +475,76 @@ func RenderNodeDetails(s *state.AppState, nodeID string) string {
 	help := helpStyle.Render("\nPress c to view config • h to refresh health check • Esc to go back")
 
 	return title + "\n\n" + content + "\n" + help
+}
+
+// RenderNodeConfigSave renders the file save dialog for node config
+func RenderNodeConfigSave(s *state.AppState) string {
+	return RenderNodeConfigSaveWithZones(s, nil)
+}
+
+// RenderNodeConfigSaveWithZones renders the file save dialog with clickable fields
+func RenderNodeConfigSaveWithZones(s *state.AppState, zm *zone.Manager) string {
+	// Find the node
+	var node *models.Node
+	for i := range s.Nodes {
+		if s.Nodes[i].ID == s.SelectedNodeID {
+			node = &s.Nodes[i]
+			break
+		}
+	}
+
+	if node == nil {
+		return titleStyle.Render("Save Node Config") + "\n\n" + "Node not found\n\n" + helpStyle.Render("Press Esc to go back")
+	}
+
+	// Initialize form if needed (1 field: file path)
+	if len(s.FormFields) != 1 {
+		// Get home directory and set default path
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			homeDir = "~"
+		}
+		filename := fmt.Sprintf("node-config-%s.toml", node.Name)
+		defaultPath := filepath.Join(homeDir, filename)
+		s.FormFields = []string{defaultPath}
+		s.CurrentFieldIndex = 0
+	}
+
+	title := titleStyle.Render("💾 Save Node Configuration")
+
+	// Render the file path field
+	label := "  File Path:"
+	if s.CurrentFieldIndex == 0 {
+		label = "> File Path:"
+	}
+
+	value := s.FormFields[0]
+	displayValue := value
+	if s.CurrentFieldIndex == 0 {
+		// Show cursor at position
+		cursor := s.CursorPosition
+		if cursor < 0 {
+			cursor = 0
+		}
+		if cursor > len(value) {
+			cursor = len(value)
+		}
+		displayValue = value[:cursor] + "_" + value[cursor:]
+	}
+
+	// Wrap in zone for click support
+	fieldLine := label + " " + displayValue + "\n"
+	var fields string
+	if zm != nil {
+		fields = zm.Mark("field:0", fieldLine)
+	} else {
+		fields = fieldLine
+	}
+
+	help := helpStyle.Render("\nEnter to save • Esc to cancel")
+	note := helpStyle.Render("Note: Use absolute path or ~ for home directory")
+
+	return title + "\n\n" + fields + "\n" + help + "\n" + note
 }
 
 // RenderNodeConfig renders the TOML configuration for a node with scrollable viewport

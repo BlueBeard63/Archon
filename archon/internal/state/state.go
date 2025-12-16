@@ -35,6 +35,7 @@ const (
 	ScreenNodeCreate        Screen = "node_create"
 	ScreenNodeEdit          Screen = "node_edit"
 	ScreenNodeConfig        Screen = "node_config"
+	ScreenNodeConfigSave    Screen = "node_config_save"
 	ScreenSettings          Screen = "settings"
 	ScreenHelp              Screen = "help"
 )
@@ -69,6 +70,7 @@ type AppState struct {
 	// Form state (for create/edit screens)
 	FormFields        []string `json:"form_fields"`        // Current values of form fields
 	CurrentFieldIndex int      `json:"current_field_index"` // Which field has focus
+	CursorPosition    int      `json:"cursor_position"`     // Cursor position within current field
 	DropdownOpen      bool     `json:"dropdown_open"`       // Is a dropdown currently expanded
 	DropdownIndex     int      `json:"dropdown_index"`      // Currently highlighted option in dropdown
 
@@ -135,6 +137,7 @@ func (s *AppState) NavigateTo(screen Screen) {
 	// Reset form state when navigating
 	s.FormFields = []string{}
 	s.CurrentFieldIndex = 0
+	s.CursorPosition = 0
 }
 
 // NavigateBack goes back to the previous screen in history
@@ -167,21 +170,31 @@ func (s *AppState) ClearNotifications() {
 
 // GetSiteByID finds a site by its UUID
 func (s *AppState) GetSiteByID(id uuid.UUID) *models.Site {
-	// TODO: Implement site lookup
-	// Iterate through s.Sites and return pointer to matching site
-	// Return nil if not found
+	for i := range s.Sites {
+		if s.Sites[i].ID == id {
+			return &s.Sites[i]
+		}
+	}
 	return nil
 }
 
 // GetDomainByID finds a domain by its UUID
 func (s *AppState) GetDomainByID(id uuid.UUID) *models.Domain {
-	// TODO: Implement domain lookup
+	for i := range s.Domains {
+		if s.Domains[i].ID == id {
+			return &s.Domains[i]
+		}
+	}
 	return nil
 }
 
 // GetNodeByID finds a node by its UUID
 func (s *AppState) GetNodeByID(id uuid.UUID) *models.Node {
-	// TODO: Implement node lookup
+	for i := range s.Nodes {
+		if s.Nodes[i].ID == id {
+			return &s.Nodes[i]
+		}
+	}
 	return nil
 }
 

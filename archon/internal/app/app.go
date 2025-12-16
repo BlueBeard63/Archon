@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
@@ -154,12 +155,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			// Check for row action buttons (edit/delete/view)
+			// Check for row action buttons (deploy/edit/delete/view)
 			// Sites
 			for i, site := range m.state.Sites {
+				deployID := "button:deploy-site-" + site.ID.String()
 				editID := "button:edit-site-" + site.ID.String()
 				deleteID := "button:delete-site-" + site.ID.String()
 
+				if m.zone.Get(deployID).InBounds(msg) {
+					// Sync table cursor
+					m.state.SitesListIndex = i
+					if m.state.SitesTable != nil {
+						m.state.SitesTable.SetCursor(i)
+					}
+
+					// Deploy site
+					return m, m.spawnDeploySite(site.ID)
+				}
 				if m.zone.Get(editID).InBounds(msg) {
 					// Sync table cursor
 					m.state.SitesListIndex = i
@@ -303,12 +315,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.spawnDeploySite(msg.SiteID)
 
 	case SiteDeployedMsg:
-		// TODO: Update site status based on result
-		// if msg.Error != nil {
-		//     m.state.AddNotification("Deployment failed: "+msg.Error.Error(), "error")
-		// } else {
-		//     m.state.AddNotification("Site deployed successfully", "success")
-		// }
+		// Update site status based on result
+		if msg.Error != nil {
+			m.state.AddNotification("Deployment failed: "+msg.Error.Error(), "error")
+		} else {
+			m.state.AddNotification("Site deployed successfully", "success")
+		}
 		return m, nil
 
 	// ========================================================================
@@ -340,7 +352,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.spawnNodeHealthCheck(msg.NodeID)
 
 	case NodeHealthCheckResultMsg:
-		// TODO: Update node status with health check result
+		// Node status is already updated in spawnNodeHealthCheck
+		if msg.Error != nil {
+			m.state.AddNotification("Node health check failed: "+msg.Error.Error(), "error")
+		}
 		return m, nil
 
 	// ========================================================================
@@ -410,30 +425,45 @@ func (m Model) View() string {
 
 func (m Model) spawnDeploySite(siteID uuid.UUID) tea.Cmd {
 	return func() tea.Msg {
-		// TODO: Implement deployment logic
-		// 1. Get site from state by ID
-		// 2. Get node from state by site.NodeID
-		// 3. Get domain from state by site.DomainID
-		// 4. Call nodeClient.DeploySite()
-		// 5. Return SiteDeployedMsg with result
+		// Get site from state by ID
+		site := m.state.GetSiteByID(siteID)
+		if site == nil {
+			return SiteDeployedMsg{
+				SiteID: siteID,
+				Error:  fmt.Errorf("site not found"),
+			}
+		}
 
-		// site := m.state.GetSiteByID(siteID)
-		// node := m.state.GetNodeByID(site.NodeID)
-		// domain := m.state.GetDomainByID(site.DomainID)
-		//
-		// err := m.nodeClient.DeploySite(
-		//     node.APIEndpoint,
-		//     node.APIKey,
-		//     site,
-		//     domain.Name,
-		// )
-		//
-		// return SiteDeployedMsg{
-		//     SiteID: siteID,
-		//     Error:  err,
-		// }
+		// Get node from state by site.NodeID
+		node := m.state.GetNodeByID(site.NodeID)
+		if node == nil {
+			return SiteDeployedMsg{
+				SiteID: siteID,
+				Error:  fmt.Errorf("node not found"),
+			}
+		}
 
-		return SiteDeployedMsg{SiteID: siteID, Error: nil}
+		// Get domain from state by site.DomainID
+		domain := m.state.GetDomainByID(site.DomainID)
+		if domain == nil {
+			return SiteDeployedMsg{
+				SiteID: siteID,
+				Error:  fmt.Errorf("domain not found"),
+			}
+		}
+
+		// Call nodeClient.DeploySite()
+		err := m.nodeClient.DeploySite(
+			node.APIEndpoint,
+			node.APIKey,
+			site,
+			domain.Name,
+		)
+
+		return SiteDeployedMsg{
+			SiteID: siteID,
+			Error:  err,
+		}
 	}
 }
 
@@ -451,12 +481,35 @@ func (m Model) spawnSyncDns(domainID uuid.UUID) tea.Cmd {
 
 func (m Model) spawnNodeHealthCheck(nodeID uuid.UUID) tea.Cmd {
 	return func() tea.Msg {
-		// TODO: Implement health check logic
-		// 1. Get node from state by ID
-		// 2. Call nodeClient.HealthCheck()
-		// 3. Return NodeHealthCheckResultMsg
+		// Get node from state by ID
+		node := m.state.GetNodeByID(nodeID)
+		if node == nil {
+			return NodeHealthCheckResultMsg{
+				NodeID: nodeID,
+				Error:  fmt.Errorf("node not found"),
+			}
+		}
 
-		return NodeHealthCheckResultMsg{NodeID: nodeID, Error: nil}
+		// Call nodeClient.HealthCheck()
+		health, err := m.nodeClient.HealthCheck(node.APIEndpoint, node.APIKey)
+		if err != nil {
+			return NodeHealthCheckResultMsg{
+				NodeID: nodeID,
+				Error:  err,
+			}
+		}
+
+		// Update node status and info
+		node.Status = health.Status
+		node.DockerInfo = health.Docker
+		node.TraefikInfo = health.Traefik
+		now := time.Now()
+		node.LastHealthCheck = &now
+
+		return NodeHealthCheckResultMsg{
+			NodeID: nodeID,
+			Error:  nil,
+		}
 	}
 }
 
