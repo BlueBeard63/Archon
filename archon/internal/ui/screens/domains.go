@@ -2,7 +2,9 @@ package screens
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
 	zone "github.com/lrstanley/bubblezone"
 
@@ -42,15 +44,8 @@ func RenderDomainsListWithZones(s *state.AppState, zm *zone.Manager) string {
 	if len(s.Domains) == 0 {
 		content = helpStyle.Render("No domains yet. Click 'Create Domain' or press 'n'.")
 	} else {
-		content = fmt.Sprintf("Total Domains: %d\n\n", len(s.Domains))
-
-		// Manual table with row action buttons
-		headerStyle := lipgloss.NewStyle().Bold(true).BorderStyle(lipgloss.NormalBorder()).BorderBottom(true).BorderForeground(lipgloss.Color("240"))
-		rowStyle := lipgloss.NewStyle().PaddingRight(2)
-
-		header := headerStyle.Render(fmt.Sprintf("%-30s %-15s %-8s %-8s %-45s", "Name", "Provider", "Records", "Traefik", "Actions"))
-		content += header + "\n"
-
+		// 1. Build table rows (data only, NO buttons)
+		var rows []table.Row
 		for _, domain := range s.Domains {
 			providerName := domain.ProviderName()
 			if domain.IsManualDNS() {
@@ -62,34 +57,90 @@ func RenderDomainsListWithZones(s *state.AppState, zm *zone.Manager) string {
 				traefikStatus = "Yes"
 			}
 
-			// Create row action buttons (icon only)
-			editBtn := components.Button{ID: "edit-domain-" + domain.ID.String(), Label: "✏️", Primary: false, Border: false, Icon: true}
-			deleteBtn := components.Button{ID: "delete-domain-" + domain.ID.String(), Label: "🗑️", Primary: false, Border: false, Icon: true}
-
-			var editBtnStr, deleteBtnStr string
-			if zm != nil {
-				editBtnStr = editBtn.RenderWithZone(zm)
-				deleteBtnStr = deleteBtn.RenderWithZone(zm)
-			} else {
-				editBtnStr = editBtn.Render()
-				deleteBtnStr = deleteBtn.Render()
-			}
-
-			actions := editBtnStr + " " + deleteBtnStr
-
-			rowText := fmt.Sprintf("%-30s %-15s %-8s %-8s %-45s",
+			rows = append(rows, table.Row{
 				truncate(domain.Name, 30),
 				truncate(providerName, 15),
 				fmt.Sprintf("%d", len(domain.DnsRecords)),
 				traefikStatus,
-				actions,
-			)
+			})
+		}
 
-			content += rowStyle.Render(rowText) + "\n"
+		// 2. Initialize/update table
+		if s.DomainsTable == nil {
+			columns := []table.Column{
+				{Title: "Name", Width: 30},
+				{Title: "Provider", Width: 15},
+				{Title: "Records", Width: 8},
+				{Title: "Traefik", Width: 8},
+			}
+			s.DomainsTable = components.NewTableComponent(columns, rows)
+			s.DomainsTable.SetCursor(s.DomainsListIndex)
+		} else {
+			s.DomainsTable.SetRows(rows)
+			s.DomainsTable.SetCursor(s.DomainsListIndex)
+		}
+
+		// 3. Render table view
+		tableView := s.DomainsTable.View()
+
+		// 4. Build action buttons column (aligned with rows)
+		var actionsColumn strings.Builder
+		actionsColumn.WriteString("\n\n") // Header padding
+
+		for _, domain := range s.Domains {
+			editBtn := components.Button{
+				ID:      "edit-domain-" + domain.ID.String(),
+				Label:   "✏️",
+				Primary: false,
+				Border:  false,
+				Icon:    true,
+			}
+			deleteBtn := components.Button{
+				ID:      "delete-domain-" + domain.ID.String(),
+				Label:   "🗑️",
+				Primary: false,
+				Border:  false,
+				Icon:    true,
+			}
+
+			var actionLine string
+			if zm != nil {
+				actionLine = editBtn.RenderWithZone(zm) + " " + deleteBtn.RenderWithZone(zm)
+			} else {
+				actionLine = editBtn.Render() + " " + deleteBtn.Render()
+			}
+
+			actionsColumn.WriteString(actionLine + "\n")
+		}
+
+		// 5. Join table + actions horizontally
+		mainContent := lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			tableView,
+			actionsColumn.String(),
+		)
+
+		// 6. Build sidebar for selected domain
+		var sidebar string
+		if len(s.Domains) > 0 && s.DomainsListIndex >= 0 && s.DomainsListIndex < len(s.Domains) {
+			domain := &s.Domains[s.DomainsListIndex]
+			sidebar = renderDomainSidebar(s, domain)
+		}
+
+		// 7. Join main content + sidebar
+		if sidebar != "" {
+			content = lipgloss.JoinHorizontal(
+				lipgloss.Top,
+				mainContent,
+				"  ", // Spacing
+				sidebar,
+			)
+		} else {
+			content = mainContent
 		}
 	}
 
-	help := helpStyle.Render("\n\nPress n to create • Esc to go back")
+	help := helpStyle.Render("\n\nPress j/k or arrows to navigate • e to edit • d to delete • n to create • Esc to go back")
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -171,6 +222,56 @@ func RenderDomainCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		helpStyle.Render("To use Cloudflare or Route53, edit config.toml after creation")
 }
 
+// RenderDomainEdit renders the domain edit form
+func RenderDomainEdit(s *state.AppState) string {
+	return RenderDomainEditWithZones(s, nil)
+}
+
+// RenderDomainEditWithZones renders the domain edit form with clickable field
+func RenderDomainEditWithZones(s *state.AppState, zm *zone.Manager) string {
+	// Find the domain
+	var domain *models.Domain
+	for i := range s.Domains {
+		if s.Domains[i].ID == s.SelectedDomainID {
+			domain = &s.Domains[i]
+			break
+		}
+	}
+
+	if domain == nil {
+		return titleStyle.Render("Edit Domain") + "\n\n" + "Domain not found\n\n" + helpStyle.Render("Press Esc to go back")
+	}
+
+	// Initialize form if needed with current domain name
+	if len(s.FormFields) == 0 {
+		s.FormFields = []string{domain.Name}
+		s.CurrentFieldIndex = 0
+	}
+
+	title := titleStyle.Render("Edit Domain: " + domain.Name)
+
+	// Render input field
+	domainName := s.FormFields[0]
+	displayValue := domainName
+	if s.CurrentFieldIndex == 0 {
+		displayValue = domainName + "_"
+	}
+
+	fieldLine := "Domain Name: " + displayValue + "\n"
+	var inputField string
+	if zm != nil {
+		inputField = zm.Mark("field:0", fieldLine)
+	} else {
+		inputField = fieldLine
+	}
+
+	help := helpStyle.Render("\nType domain name, press Enter to save, Esc to cancel")
+
+	return title + "\n\n" +
+		inputField + "\n" +
+		help
+}
+
 // RenderDomainDnsRecords renders DNS records for a domain
 func RenderDomainDnsRecords(s *state.AppState, domainID string) string {
 	title := titleStyle.Render("DNS Records")
@@ -237,4 +338,34 @@ func RenderDomainDnsRecords(s *state.AppState, domainID string) string {
 	}
 
 	return title + "\n\n" + content + "\n" + help
+}
+
+// renderDomainSidebar renders a sidebar showing sites related to the selected domain
+func renderDomainSidebar(s *state.AppState, domain *models.Domain) string {
+	sidebarStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		Padding(1, 2).
+		Width(35)
+
+	title := lipgloss.NewStyle().Bold(true).Render("📋 Related Sites")
+
+	// Find sites using this domain
+	var relatedSites []string
+	for _, site := range s.Sites {
+		if site.DomainID == domain.ID {
+			relatedSites = append(relatedSites,
+				fmt.Sprintf("• %s (Port %d)", site.Name, site.Port))
+		}
+	}
+
+	var content string
+	if len(relatedSites) == 0 {
+		content = lipgloss.NewStyle().Faint(true).
+			Render("No sites using this domain")
+	} else {
+		content = strings.Join(relatedSites, "\n")
+	}
+
+	return sidebarStyle.Render(title + "\n\n" + content)
 }

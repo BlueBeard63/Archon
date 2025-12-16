@@ -2,6 +2,7 @@ package components
 
 import (
 	"github.com/charmbracelet/bubbles/table"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -110,4 +111,21 @@ func (c *TableComponent) MoveUp() {
 // MoveDown moves the selection down by one row
 func (c *TableComponent) MoveDown() {
 	c.table.MoveDown(1)
+}
+
+// Update forwards TEA messages to the underlying table
+func (c *TableComponent) Update(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	c.table, cmd = c.table.Update(msg)
+	return cmd
+}
+
+// GetSelectedRow returns the currently selected row data
+func (c *TableComponent) GetSelectedRow() table.Row {
+	return c.table.SelectedRow()
+}
+
+// SetWidth adjusts the table width and proportionally scales columns
+func (c *TableComponent) SetWidth(width int) {
+	c.table.SetWidth(width)
 }

@@ -2,10 +2,13 @@ package screens
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
 	zone "github.com/lrstanley/bubblezone"
 
+	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/BlueBeard63/archon/internal/state"
 	"github.com/BlueBeard63/archon/internal/ui/components"
 )
@@ -37,17 +40,10 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 	if len(s.Sites) == 0 {
 		content = helpStyle.Render("No sites yet. Click 'Create Site' or press 'n'.")
 	} else {
-		content = fmt.Sprintf("Total Sites: %d\n\n", len(s.Sites))
-
-		// Manual table with row action buttons
-		headerStyle := lipgloss.NewStyle().Bold(true).BorderStyle(lipgloss.NormalBorder()).BorderBottom(true).BorderForeground(lipgloss.Color("240"))
-		rowStyle := lipgloss.NewStyle().PaddingRight(2)
-
-		header := headerStyle.Render(fmt.Sprintf("%-25s %-18s %-25s %-6s %-10s %-45s", "Name", "Domain", "Node", "Port", "Status", "Actions"))
-		content += header + "\n"
-
+		// 1. Build table rows (data only, NO buttons)
+		var rows []table.Row
 		for _, site := range s.Sites {
-			// Get domain and node names (would need lookups in real implementation)
+			// Get domain and node names
 			domainName := site.DomainID.String()[:8] + "..."
 			nodeName := site.NodeID.String()[:8] + "..."
 
@@ -65,35 +61,92 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 				}
 			}
 
-			// Create row action buttons (icon only)
-			editBtn := components.Button{ID: "edit-site-" + site.ID.String(), Label: "✏️", Primary: false, Border: false, Icon: true}
-			deleteBtn := components.Button{ID: "delete-site-" + site.ID.String(), Label: "🗑️", Primary: false, Border: false, Icon: true}
-
-			var editBtnStr, deleteBtnStr string
-			if zm != nil {
-				editBtnStr = editBtn.RenderWithZone(zm)
-				deleteBtnStr = deleteBtn.RenderWithZone(zm)
-			} else {
-				editBtnStr = editBtn.Render()
-				deleteBtnStr = deleteBtn.Render()
-			}
-
-			actions := editBtnStr + " " + deleteBtnStr
-
-			rowText := fmt.Sprintf("%-25s %-18s %-25s %-6d %-10s %-45s",
+			rows = append(rows, table.Row{
 				truncate(site.Name, 25),
 				truncate(domainName, 18),
 				truncate(nodeName, 25),
-				site.Port,
-				site.Status,
-				actions,
-			)
+				fmt.Sprintf("%d", site.Port),
+				string(site.Status),
+			})
+		}
 
-			content += rowStyle.Render(rowText) + "\n"
+		// 2. Initialize/update table
+		if s.SitesTable == nil {
+			columns := []table.Column{
+				{Title: "Name", Width: 25},
+				{Title: "Domain", Width: 18},
+				{Title: "Node", Width: 25},
+				{Title: "Port", Width: 6},
+				{Title: "Status", Width: 10},
+			}
+			s.SitesTable = components.NewTableComponent(columns, rows)
+			s.SitesTable.SetCursor(s.SitesListIndex)
+		} else {
+			s.SitesTable.SetRows(rows)
+			s.SitesTable.SetCursor(s.SitesListIndex)
+		}
+
+		// 3. Render table view
+		tableView := s.SitesTable.View()
+
+		// 4. Build action buttons column (aligned with rows)
+		var actionsColumn strings.Builder
+		actionsColumn.WriteString("\n\n") // Header padding
+
+		for _, site := range s.Sites {
+			editBtn := components.Button{
+				ID:      "edit-site-" + site.ID.String(),
+				Label:   "✏️",
+				Primary: false,
+				Border:  false,
+				Icon:    true,
+			}
+			deleteBtn := components.Button{
+				ID:      "delete-site-" + site.ID.String(),
+				Label:   "🗑️",
+				Primary: false,
+				Border:  false,
+				Icon:    true,
+			}
+
+			var actionLine string
+			if zm != nil {
+				actionLine = editBtn.RenderWithZone(zm) + " " + deleteBtn.RenderWithZone(zm)
+			} else {
+				actionLine = editBtn.Render() + " " + deleteBtn.Render()
+			}
+
+			actionsColumn.WriteString(actionLine + "\n")
+		}
+
+		// 5. Join table + actions horizontally
+		mainContent := lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			tableView,
+			actionsColumn.String(),
+		)
+
+		// 6. Build sidebar for selected site
+		var sidebar string
+		if len(s.Sites) > 0 && s.SitesListIndex >= 0 && s.SitesListIndex < len(s.Sites) {
+			site := &s.Sites[s.SitesListIndex]
+			sidebar = renderSiteSidebar(s, site)
+		}
+
+		// 7. Join main content + sidebar
+		if sidebar != "" {
+			content = lipgloss.JoinHorizontal(
+				lipgloss.Top,
+				mainContent,
+				"  ", // Spacing
+				sidebar,
+			)
+		} else {
+			content = mainContent
 		}
 	}
 
-	help := helpStyle.Render("\n\nPress n to create • Esc to go back")
+	help := helpStyle.Render("\n\nPress j/k or arrows to navigate • e to edit • d to delete • n to create • Esc to go back")
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -212,4 +265,44 @@ func boolToYesNo(b bool) string {
 		return "Yes"
 	}
 	return "No"
+}
+
+// renderSiteSidebar renders a sidebar showing relationships for the selected site
+func renderSiteSidebar(s *state.AppState, site *models.Site) string {
+	sidebarStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		Padding(1, 2).
+		Width(35)
+
+	title := lipgloss.NewStyle().Bold(true).Render("🔗 Relationships")
+
+	// Find domain
+	var domainInfo string
+	for _, d := range s.Domains {
+		if d.ID == site.DomainID {
+			domainInfo = fmt.Sprintf("🌍 Domain: %s\n   Provider: %s",
+				d.Name, d.ProviderName())
+			break
+		}
+	}
+	if domainInfo == "" {
+		domainInfo = "🌍 Domain: Not found"
+	}
+
+	// Find node
+	var nodeInfo string
+	for _, n := range s.Nodes {
+		if n.ID == site.NodeID {
+			nodeInfo = fmt.Sprintf("🖥️  Node: %s\n   IP: %s",
+				n.Name, n.IPAddress.String())
+			break
+		}
+	}
+	if nodeInfo == "" {
+		nodeInfo = "🖥️  Node: Not found"
+	}
+
+	content := domainInfo + "\n\n" + nodeInfo
+	return sidebarStyle.Render(title + "\n\n" + content)
 }

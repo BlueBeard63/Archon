@@ -2,22 +2,39 @@ package state
 
 import (
 	"github.com/google/uuid"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/BlueBeard63/archon/internal/models"
 )
+
+// TableComponent interface to avoid circular import
+type TableComponent interface {
+	View() string
+	SetCursor(int)
+	GetCursor() int
+	SetRows([]table.Row)
+	Update(tea.Msg) tea.Cmd
+	SetWidth(int)
+	GetSelectedRow() table.Row
+}
 
 // Screen represents different screens in the TUI
 type Screen string
 
 const (
-	ScreenDashboard    Screen = "dashboard"
-	ScreenSitesList    Screen = "sites_list"
-	ScreenSiteCreate   Screen = "site_create"
-	ScreenDomainsList  Screen = "domains_list"
-	ScreenDomainCreate Screen = "domain_create"
-	ScreenNodesList    Screen = "nodes_list"
-	ScreenNodeCreate   Screen = "node_create"
-	ScreenNodeConfig   Screen = "node_config"
-	ScreenHelp         Screen = "help"
+	ScreenDashboard         Screen = "dashboard"
+	ScreenSitesList         Screen = "sites_list"
+	ScreenSiteCreate        Screen = "site_create"
+	ScreenSiteEdit          Screen = "site_edit"
+	ScreenDomainsList       Screen = "domains_list"
+	ScreenDomainCreate      Screen = "domain_create"
+	ScreenDomainEdit        Screen = "domain_edit"
+	ScreenDomainDnsRecords  Screen = "domain_dns_records"
+	ScreenNodesList         Screen = "nodes_list"
+	ScreenNodeCreate        Screen = "node_create"
+	ScreenNodeEdit          Screen = "node_edit"
+	ScreenNodeConfig        Screen = "node_config"
+	ScreenHelp              Screen = "help"
 )
 
 // AppState holds all application state for the TUI
@@ -35,7 +52,14 @@ type AppState struct {
 	SitesListIndex   int       `json:"sites_list_index"`
 	DomainsListIndex int       `json:"domains_list_index"`
 	NodesListIndex   int       `json:"nodes_list_index"`
-	SelectedNodeID   uuid.UUID `json:"selected_node_id"` // For viewing node config
+	SelectedSiteID   uuid.UUID `json:"selected_site_id"`   // For editing site
+	SelectedDomainID uuid.UUID `json:"selected_domain_id"` // For editing domain
+	SelectedNodeID   uuid.UUID `json:"selected_node_id"`   // For viewing/editing node config
+
+	// Table component instances (runtime only, not serialized)
+	SitesTable   TableComponent `json:"-"`
+	DomainsTable TableComponent `json:"-"`
+	NodesTable   TableComponent `json:"-"`
 
 	// Form state (for create/edit screens)
 	FormFields        []string `json:"form_fields"`        // Current values of form fields

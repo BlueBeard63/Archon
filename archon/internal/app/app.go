@@ -73,7 +73,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ========================================================================
 
 	case tea.KeyMsg:
-		// Delegate to key handler (implemented in handlers.go)
+		// Let table handle navigation on list screens
+		switch m.state.CurrentScreen {
+		case state.ScreenSitesList:
+			if m.state.SitesTable != nil {
+				switch msg.String() {
+				case "up", "k", "down", "j", "pgup", "pgdown", "home", "end":
+					cmd := m.state.SitesTable.Update(msg)
+					m.state.SitesListIndex = m.state.SitesTable.GetCursor()
+					return m, cmd
+				}
+			}
+		case state.ScreenDomainsList:
+			if m.state.DomainsTable != nil {
+				switch msg.String() {
+				case "up", "k", "down", "j", "pgup", "pgdown", "home", "end":
+					cmd := m.state.DomainsTable.Update(msg)
+					m.state.DomainsListIndex = m.state.DomainsTable.GetCursor()
+					return m, cmd
+				}
+			}
+		case state.ScreenNodesList:
+			if m.state.NodesTable != nil {
+				switch msg.String() {
+				case "up", "k", "down", "j", "pgup", "pgdown", "home", "end":
+					cmd := m.state.NodesTable.Update(msg)
+					m.state.NodesListIndex = m.state.NodesTable.GetCursor()
+					return m, cmd
+				}
+			}
+		}
+
+		// Fallback to handlers for other keys
 		return m.handleKeyPress(msg)
 
 	case tea.MouseMsg:
@@ -117,55 +148,98 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Check for row action buttons (edit/delete/view)
 			// Sites
-			for _, site := range m.state.Sites {
+			for i, site := range m.state.Sites {
 				editID := "button:edit-site-" + site.ID.String()
 				deleteID := "button:delete-site-" + site.ID.String()
 
 				if m.zone.Get(editID).InBounds(msg) {
+					// Sync table cursor
+					m.state.SitesListIndex = i
+					if m.state.SitesTable != nil {
+						m.state.SitesTable.SetCursor(i)
+					}
+
 					// TODO: Navigate to site edit screen
 					m.state.AddNotification("Edit site: "+site.Name+" (not yet implemented)", "info")
 					return m, nil
 				}
 				if m.zone.Get(deleteID).InBounds(msg) {
+					// Sync table cursor
+					m.state.SitesListIndex = i
+					if m.state.SitesTable != nil {
+						m.state.SitesTable.SetCursor(i)
+					}
+
 					// Delete site
 					return m.handleDeleteSite(site.ID)
 				}
 			}
 
 			// Domains
-			for _, domain := range m.state.Domains {
+			for i, domain := range m.state.Domains {
 				editID := "button:edit-domain-" + domain.ID.String()
 				deleteID := "button:delete-domain-" + domain.ID.String()
 
 				if m.zone.Get(editID).InBounds(msg) {
-					// TODO: Navigate to domain edit screen
-					m.state.AddNotification("Edit domain: "+domain.Name+" (not yet implemented)", "info")
+					// Sync table cursor
+					m.state.DomainsListIndex = i
+					if m.state.DomainsTable != nil {
+						m.state.DomainsTable.SetCursor(i)
+					}
+
+					// Navigate to domain edit screen
+					m.state.SelectedDomainID = domain.ID
+					m.state.NavigateTo(state.ScreenDomainEdit)
 					return m, nil
 				}
 				if m.zone.Get(deleteID).InBounds(msg) {
+					// Sync table cursor
+					m.state.DomainsListIndex = i
+					if m.state.DomainsTable != nil {
+						m.state.DomainsTable.SetCursor(i)
+					}
+
 					// Delete domain
 					return m.handleDeleteDomain(domain.ID)
 				}
 			}
 
 			// Nodes
-			for _, node := range m.state.Nodes {
+			for i, node := range m.state.Nodes {
 				viewID := "button:view-node-" + node.ID.String()
 				editID := "button:edit-node-" + node.ID.String()
 				deleteID := "button:delete-node-" + node.ID.String()
 
 				if m.zone.Get(viewID).InBounds(msg) {
+					// Sync table cursor
+					m.state.NodesListIndex = i
+					if m.state.NodesTable != nil {
+						m.state.NodesTable.SetCursor(i)
+					}
+
 					// View node config
 					m.state.SelectedNodeID = node.ID
 					m.state.NavigateTo(state.ScreenNodeConfig)
 					return m, nil
 				}
 				if m.zone.Get(editID).InBounds(msg) {
+					// Sync table cursor
+					m.state.NodesListIndex = i
+					if m.state.NodesTable != nil {
+						m.state.NodesTable.SetCursor(i)
+					}
+
 					// TODO: Navigate to node edit screen
 					m.state.AddNotification("Edit node: "+node.Name+" (not yet implemented)", "info")
 					return m, nil
 				}
 				if m.zone.Get(deleteID).InBounds(msg) {
+					// Sync table cursor
+					m.state.NodesListIndex = i
+					if m.state.NodesTable != nil {
+						m.state.NodesTable.SetCursor(i)
+					}
+
 					// Delete node
 					return m.handleDeleteNode(node.ID)
 				}

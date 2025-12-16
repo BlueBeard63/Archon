@@ -20,8 +20,11 @@ import (
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Check if we're on a form screen (prioritize form input)
 	isFormScreen := m.state.CurrentScreen == state.ScreenSiteCreate ||
+		m.state.CurrentScreen == state.ScreenSiteEdit ||
 		m.state.CurrentScreen == state.ScreenDomainCreate ||
-		m.state.CurrentScreen == state.ScreenNodeCreate
+		m.state.CurrentScreen == state.ScreenDomainEdit ||
+		m.state.CurrentScreen == state.ScreenNodeCreate ||
+		m.state.CurrentScreen == state.ScreenNodeEdit
 
 	// Critical global key bindings (work on all screens)
 	switch msg.String() {
@@ -70,6 +73,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDomainsListKeys(msg)
 	case state.ScreenDomainCreate:
 		return m.handleDomainCreateKeys(msg)
+	case state.ScreenDomainEdit:
+		return m.handleDomainEditKeys(msg)
 	case state.ScreenNodesList:
 		return m.handleNodesListKeys(msg)
 	case state.ScreenNodeCreate:
@@ -103,6 +108,22 @@ func (m Model) handleSitesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "n", "c":
 		m.state.NavigateTo(state.ScreenSiteCreate)
+		return m, nil
+
+	case "e":
+		// Edit selected site
+		if len(m.state.Sites) > 0 && m.state.SitesListIndex >= 0 && m.state.SitesListIndex < len(m.state.Sites) {
+			site := m.state.Sites[m.state.SitesListIndex]
+			m.state.AddNotification("Edit site: "+site.Name+" (not yet implemented)", "info")
+		}
+		return m, nil
+
+	case "d":
+		// Delete selected site
+		if len(m.state.Sites) > 0 && m.state.SitesListIndex >= 0 && m.state.SitesListIndex < len(m.state.Sites) {
+			site := m.state.Sites[m.state.SitesListIndex]
+			return m.handleDeleteSite(site.ID)
+		}
 		return m, nil
 	}
 
@@ -163,6 +184,30 @@ func (m Model) handleDomainsListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n", "c":
 		m.state.NavigateTo(state.ScreenDomainCreate)
 		return m, nil
+
+	case "e":
+		// Edit selected domain
+		if len(m.state.Domains) > 0 && m.state.DomainsListIndex >= 0 && m.state.DomainsListIndex < len(m.state.Domains) {
+			domain := m.state.Domains[m.state.DomainsListIndex]
+			m.state.SelectedDomainID = domain.ID
+			m.state.NavigateTo(state.ScreenDomainEdit)
+		}
+		return m, nil
+
+	case "d":
+		// Delete selected domain
+		if len(m.state.Domains) > 0 && m.state.DomainsListIndex >= 0 && m.state.DomainsListIndex < len(m.state.Domains) {
+			domain := m.state.Domains[m.state.DomainsListIndex]
+			return m.handleDeleteDomain(domain.ID)
+		}
+		return m, nil
+
+	case "enter":
+		// View DNS records for selected domain
+		if len(m.state.Domains) > 0 && m.state.DomainsListIndex >= 0 && m.state.DomainsListIndex < len(m.state.Domains) {
+			m.state.NavigateTo(state.ScreenDomainDnsRecords)
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -196,6 +241,34 @@ func (m Model) handleDomainCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleDomainEditKeys handles keys on the domain edit form
+func (m Model) handleDomainEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeySpace:
+		// Add space to domain name field
+		m.state.FormFields[0] += " "
+		return m, nil
+
+	case tea.KeyRunes:
+		// Add character to domain name field
+		m.state.FormFields[0] += string(msg.Runes)
+		return m, nil
+
+	case tea.KeyBackspace:
+		// Remove last character
+		if len(m.state.FormFields[0]) > 0 {
+			m.state.FormFields[0] = m.state.FormFields[0][:len(m.state.FormFields[0])-1]
+		}
+		return m, nil
+
+	case tea.KeyEnter:
+		// Submit form
+		return m.handleDomainEditSubmit()
+	}
+
+	return m, nil
+}
+
 // handleNodesListKeys handles keys on the nodes list screen
 func (m Model) handleNodesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -203,16 +276,27 @@ func (m Model) handleNodesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state.NavigateTo(state.ScreenNodeCreate)
 		return m, nil
 
-	case "v":
-		// View config for selected/first node
-		if len(m.state.Nodes) > 0 {
-			// Use the selected index if valid, otherwise use first node
-			nodeIndex := m.state.NodesListIndex
-			if nodeIndex < 0 || nodeIndex >= len(m.state.Nodes) {
-				nodeIndex = 0
-			}
-			m.state.SelectedNodeID = m.state.Nodes[nodeIndex].ID
+	case "v", "enter":
+		// View config for selected node
+		if len(m.state.Nodes) > 0 && m.state.NodesListIndex >= 0 && m.state.NodesListIndex < len(m.state.Nodes) {
+			m.state.SelectedNodeID = m.state.Nodes[m.state.NodesListIndex].ID
 			m.state.NavigateTo(state.ScreenNodeConfig)
+		}
+		return m, nil
+
+	case "e":
+		// Edit selected node
+		if len(m.state.Nodes) > 0 && m.state.NodesListIndex >= 0 && m.state.NodesListIndex < len(m.state.Nodes) {
+			node := m.state.Nodes[m.state.NodesListIndex]
+			m.state.AddNotification("Edit node: "+node.Name+" (not yet implemented)", "info")
+		}
+		return m, nil
+
+	case "d":
+		// Delete selected node
+		if len(m.state.Nodes) > 0 && m.state.NodesListIndex >= 0 && m.state.NodesListIndex < len(m.state.Nodes) {
+			node := m.state.Nodes[m.state.NodesListIndex]
+			return m.handleDeleteNode(node.ID)
 		}
 		return m, nil
 	}
@@ -476,6 +560,58 @@ func (m Model) handleDomainCreateSubmit() (tea.Model, tea.Cmd) {
 	m.state.Domains = append(m.state.Domains, *domain)
 
 	m.state.AddNotification("Domain created: "+domainName+" (Manual DNS)", "success")
+
+	// Auto-save config if enabled
+	if m.state.AutoSave {
+		go func() {
+			_ = m.saveConfigSync()
+		}()
+	}
+
+	m.state.NavigateBack()
+
+	return m, nil
+}
+
+// handleDomainEditSubmit processes domain edit form submission
+func (m Model) handleDomainEditSubmit() (tea.Model, tea.Cmd) {
+	newDomainName := m.state.FormFields[0]
+
+	// Validate domain name is not empty
+	if newDomainName == "" {
+		m.state.AddNotification("Domain name is required", "error")
+		return m, nil
+	}
+
+	// Find the domain being edited
+	var domainIndex = -1
+	for i := range m.state.Domains {
+		if m.state.Domains[i].ID == m.state.SelectedDomainID {
+			domainIndex = i
+			break
+		}
+	}
+
+	if domainIndex == -1 {
+		m.state.AddNotification("Domain not found", "error")
+		m.state.NavigateBack()
+		return m, nil
+	}
+
+	oldName := m.state.Domains[domainIndex].Name
+
+	// Check for duplicates (excluding current domain)
+	for i, domain := range m.state.Domains {
+		if i != domainIndex && domain.Name == newDomainName {
+			m.state.AddNotification("Domain already exists: "+newDomainName, "error")
+			return m, nil
+		}
+	}
+
+	// Update domain name
+	m.state.Domains[domainIndex].Name = newDomainName
+
+	m.state.AddNotification("Domain updated: "+oldName+" → "+newDomainName, "success")
 
 	// Auto-save config if enabled
 	if m.state.AutoSave {

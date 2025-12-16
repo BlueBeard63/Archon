@@ -2,7 +2,9 @@ package screens
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
 	zone "github.com/lrstanley/bubblezone"
 
@@ -38,47 +40,100 @@ func RenderNodesListWithZones(s *state.AppState, zm *zone.Manager) string {
 	if len(s.Nodes) == 0 {
 		content = helpStyle.Render("No nodes yet. Click 'Create Node' or press 'n'.")
 	} else {
-		content = fmt.Sprintf("Total Nodes: %d\n\n", len(s.Nodes))
-
-		// Manual table with row action buttons
-		headerStyle := lipgloss.NewStyle().Bold(true).BorderStyle(lipgloss.NormalBorder()).BorderBottom(true).BorderForeground(lipgloss.Color("240"))
-		rowStyle := lipgloss.NewStyle().PaddingRight(2)
-
-		header := headerStyle.Render(fmt.Sprintf("%-20s %-15s %-28s %-10s %-45s", "Name", "IP Address", "API Endpoint", "Status", "Actions"))
-		content += header + "\n"
-
+		// 1. Build table rows (data only, NO buttons)
+		var rows []table.Row
 		for _, node := range s.Nodes {
-			// Create row action buttons (icon only)
-			viewBtn := components.Button{ID: "view-node-" + node.ID.String(), Label: "👁️", Primary: false, Border: false, Icon: true}
-			editBtn := components.Button{ID: "edit-node-" + node.ID.String(), Label: "✏️", Primary: false, Border: false, Icon: true}
-			deleteBtn := components.Button{ID: "delete-node-" + node.ID.String(), Label: "🗑️", Primary: false, Border: false, Icon: true}
-
-			var viewBtnStr, editBtnStr, deleteBtnStr string
-			if zm != nil {
-				viewBtnStr = viewBtn.RenderWithZone(zm)
-				editBtnStr = editBtn.RenderWithZone(zm)
-				deleteBtnStr = deleteBtn.RenderWithZone(zm)
-			} else {
-				viewBtnStr = viewBtn.Render()
-				editBtnStr = editBtn.Render()
-				deleteBtnStr = deleteBtn.Render()
-			}
-
-			actions := viewBtnStr + " " + editBtnStr + " " + deleteBtnStr
-
-			rowText := fmt.Sprintf("%-20s %-15s %-28s %-10s %-45s",
+			rows = append(rows, table.Row{
 				truncateNode(node.Name, 20),
 				node.IPAddress.String(),
 				truncateNode(node.APIEndpoint, 28),
-				node.Status,
-				actions,
-			)
+				string(node.Status),
+			})
+		}
 
-			content += rowStyle.Render(rowText) + "\n"
+		// 2. Initialize/update table
+		if s.NodesTable == nil {
+			columns := []table.Column{
+				{Title: "Name", Width: 20},
+				{Title: "IP Address", Width: 15},
+				{Title: "API Endpoint", Width: 28},
+				{Title: "Status", Width: 10},
+			}
+			s.NodesTable = components.NewTableComponent(columns, rows)
+			s.NodesTable.SetCursor(s.NodesListIndex)
+		} else {
+			s.NodesTable.SetRows(rows)
+			s.NodesTable.SetCursor(s.NodesListIndex)
+		}
+
+		// 3. Render table view
+		tableView := s.NodesTable.View()
+
+		// 4. Build action buttons column (aligned with rows)
+		var actionsColumn strings.Builder
+		actionsColumn.WriteString("\n\n") // Header padding
+
+		for _, node := range s.Nodes {
+			viewBtn := components.Button{
+				ID:      "view-node-" + node.ID.String(),
+				Label:   "👁️",
+				Primary: false,
+				Border:  false,
+				Icon:    true,
+			}
+			editBtn := components.Button{
+				ID:      "edit-node-" + node.ID.String(),
+				Label:   "✏️",
+				Primary: false,
+				Border:  false,
+				Icon:    true,
+			}
+			deleteBtn := components.Button{
+				ID:      "delete-node-" + node.ID.String(),
+				Label:   "🗑️",
+				Primary: false,
+				Border:  false,
+				Icon:    true,
+			}
+
+			var actionLine string
+			if zm != nil {
+				actionLine = viewBtn.RenderWithZone(zm) + " " + editBtn.RenderWithZone(zm) + " " + deleteBtn.RenderWithZone(zm)
+			} else {
+				actionLine = viewBtn.Render() + " " + editBtn.Render() + " " + deleteBtn.Render()
+			}
+
+			actionsColumn.WriteString(actionLine + "\n")
+		}
+
+		// 5. Join table + actions horizontally
+		mainContent := lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			tableView,
+			actionsColumn.String(),
+		)
+
+		// 6. Build sidebar for selected node
+		var sidebar string
+		if len(s.Nodes) > 0 && s.NodesListIndex >= 0 && s.NodesListIndex < len(s.Nodes) {
+			node := &s.Nodes[s.NodesListIndex]
+			sidebar = renderNodeSidebar(s, node)
+		}
+
+		// 7. Join main content + sidebar
+		if sidebar != "" {
+			content = lipgloss.JoinHorizontal(
+				lipgloss.Top,
+				mainContent,
+				"  ", // Spacing
+				sidebar,
+			)
+		} else {
+			content = mainContent
 		}
 	}
 
-	help := helpStyle.Render("\n\nPress n to create • Esc to go back")
+	help := helpStyle.Render("\n\nPress j/k or arrows to navigate • e to edit • d to delete • enter to view • n to create • Esc to go back")
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -271,4 +326,34 @@ func RenderNodeConfig(s *state.AppState) string {
 	help := helpStyle.Render("\nPress Esc to go back • Press s to save to file")
 
 	return title + "\n\n" + instructions + "\n\n" + configContent + "\n" + help
+}
+
+// renderNodeSidebar renders a sidebar showing sites deployed on the selected node
+func renderNodeSidebar(s *state.AppState, node *models.Node) string {
+	sidebarStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		Padding(1, 2).
+		Width(35)
+
+	title := lipgloss.NewStyle().Bold(true).Render("📦 Deployed Sites")
+
+	// Find sites on this node
+	var deployedSites []string
+	for _, site := range s.Sites {
+		if site.NodeID == node.ID {
+			deployedSites = append(deployedSites,
+				fmt.Sprintf("• %s (%s)", site.Name, site.Status))
+		}
+	}
+
+	var content string
+	if len(deployedSites) == 0 {
+		content = lipgloss.NewStyle().Faint(true).
+			Render("No sites deployed")
+	} else {
+		content = strings.Join(deployedSites, "\n")
+	}
+
+	return sidebarStyle.Render(title + "\n\n" + content)
 }
