@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 	zone "github.com/lrstanley/bubblezone"
 
@@ -172,15 +173,15 @@ func generateAPIKey() string {
 
 // RenderNodeCreate renders the node creation form
 func RenderNodeCreate(s *state.AppState) string {
-	// Initialize form if needed (2 editable fields + 1 generated field)
-	if len(s.FormFields) != 3 {
-		s.FormFields = []string{"", "", generateAPIKey()}
+	// Initialize form if needed (3 editable fields + 1 generated field: Name, Endpoint, Proxy, APIKey)
+	if len(s.FormFields) != 4 {
+		s.FormFields = []string{"", "", "nginx", generateAPIKey()}
 		s.CurrentFieldIndex = 0
 	}
 
 	title := titleStyle.Render("Create New Node")
 
-	labels := []string{"Name:", "API Endpoint:", "API Key (auto-generated):"}
+	labels := []string{"Name:", "API Endpoint:", "Reverse Proxy:", "API Key (auto-generated):"}
 
 	// Render each field
 	var fields string
@@ -188,26 +189,74 @@ func RenderNodeCreate(s *state.AppState) string {
 		value := s.FormFields[i]
 		displayValue := value
 
-		// Show cursor if focused (but not for API key field)
+		// Show cursor if focused (but not for proxy or API key field)
 		if i == s.CurrentFieldIndex && i < 2 {
 			displayValue = value + "_"
 			label = "> " + label // Show arrow for focused field
+		} else if i == s.CurrentFieldIndex && i == 2 {
+			// Proxy field is focused but no cursor (uses dropdown)
+			label = "> " + label
 		} else {
 			label = "  " + label
 		}
 
 		// Show API key as read-only
-		if i == 2 {
+		if i == 3 {
 			displayValue = lipgloss.NewStyle().Faint(true).Render(value)
 		}
 
 		fields += label + " " + displayValue + "\n"
+
+		// Show dropdown options for Proxy field (index 2) when focused
+		if i == s.CurrentFieldIndex && i == 2 && s.DropdownOpen {
+			proxies := []string{"nginx", "apache", "traefik"}
+			dropdownOptions := renderProxyDropdown(proxies, s.DropdownIndex)
+			fields += dropdownOptions + "\n"
+		}
 	}
 
-	help := helpStyle.Render("\nTab to navigate, Enter to create, Esc to cancel")
+	helpText := "\nTab to navigate, Enter to create, Esc to cancel"
+	if s.CurrentFieldIndex == 2 {
+		// On proxy field
+		if s.DropdownOpen {
+			helpText = "\nUp/Down to select, Enter/Tab to confirm, Esc to cancel"
+		} else {
+			helpText = "\nPress Enter or Down to open proxy dropdown"
+		}
+	}
+
+	help := helpStyle.Render(helpText)
 	note := helpStyle.Render("Note: IP address will be determined from API endpoint")
 
 	return title + "\n\n" + fields + "\n" + help + "\n" + note
+}
+
+// renderProxyDropdown renders a dropdown list of proxy options
+func renderProxyDropdown(proxies []string, selectedIndex int) string {
+	var options strings.Builder
+	options.WriteString("     ┌─────────────────────────────────┐\n")
+
+	proxyLabels := map[string]string{
+		"nginx":   "Nginx",
+		"apache":  "Apache2",
+		"traefik": "Traefik",
+	}
+
+	for i, proxy := range proxies {
+		label := proxyLabels[proxy]
+		if label == "" {
+			label = proxy
+		}
+
+		if i == selectedIndex {
+			options.WriteString(fmt.Sprintf("     │ ▶ %-29s │\n", label))
+		} else {
+			options.WriteString(fmt.Sprintf("     │   %-29s │\n", label))
+		}
+	}
+
+	options.WriteString("     └─────────────────────────────────┘")
+	return options.String()
 }
 
 // RenderNodeCreateWithZones renders the node creation form with clickable fields
@@ -217,15 +266,15 @@ func RenderNodeCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		return RenderNodeCreate(s)
 	}
 
-	// Initialize form if needed (2 editable fields + 1 generated field)
-	if len(s.FormFields) != 3 {
-		s.FormFields = []string{"", "", generateAPIKey()}
+	// Initialize form if needed (3 editable fields + 1 generated field: Name, Endpoint, Proxy, APIKey)
+	if len(s.FormFields) != 4 {
+		s.FormFields = []string{"", "", "nginx", generateAPIKey()}
 		s.CurrentFieldIndex = 0
 	}
 
 	title := titleStyle.Render("Create New Node")
 
-	labels := []string{"Name:", "API Endpoint:", "API Key (auto-generated):"}
+	labels := []string{"Name:", "API Endpoint:", "Reverse Proxy:", "API Key (auto-generated):"}
 
 	// Render each field with zones
 	var fields string
@@ -233,29 +282,49 @@ func RenderNodeCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		value := s.FormFields[i]
 		displayValue := value
 
-		// Show cursor if focused (but not for API key field)
+		// Show cursor if focused (but not for proxy or API key field)
 		if i == s.CurrentFieldIndex && i < 2 {
 			displayValue = value + "_"
 			label = "> " + label // Show arrow for focused field
+		} else if i == s.CurrentFieldIndex && i == 2 {
+			// Proxy field is focused but no cursor (uses dropdown)
+			label = "> " + label
 		} else {
 			label = "  " + label
 		}
 
 		// Show API key as read-only
-		if i == 2 {
+		if i == 3 {
 			displayValue = lipgloss.NewStyle().Faint(true).Render(value)
 		}
 
 		// Wrap the entire field line in a clickable zone (only for editable fields)
 		fieldLine := label + " " + displayValue + "\n"
-		if i < 2 {
+		if i < 3 {
 			fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
 		} else {
 			fields += fieldLine
 		}
+
+		// Show dropdown options for Proxy field (index 2) when focused
+		if i == s.CurrentFieldIndex && i == 2 && s.DropdownOpen {
+			proxies := []string{"nginx", "apache", "traefik"}
+			dropdownOptions := renderProxyDropdown(proxies, s.DropdownIndex)
+			fields += dropdownOptions + "\n"
+		}
 	}
 
-	help := helpStyle.Render("\nTab to navigate, Enter to create, Esc to cancel")
+	helpText := "\nTab to navigate, Enter to create, Esc to cancel"
+	if s.CurrentFieldIndex == 2 {
+		// On proxy field
+		if s.DropdownOpen {
+			helpText = "\nUp/Down to select, Enter/Tab to confirm, Esc to cancel"
+		} else {
+			helpText = "\nPress Enter or Down to open proxy dropdown"
+		}
+	}
+
+	help := helpStyle.Render(helpText)
 	note := helpStyle.Render("Note: IP address will be determined from API endpoint")
 
 	return title + "\n\n" + fields + "\n" + help + "\n" + note
@@ -327,7 +396,7 @@ func RenderNodeDetails(s *state.AppState, nodeID string) string {
 	return title + "\n\n" + content + "\n" + help
 }
 
-// RenderNodeConfig renders the TOML configuration for a node
+// RenderNodeConfig renders the TOML configuration for a node with scrollable viewport
 func RenderNodeConfig(s *state.AppState) string {
 	title := titleStyle.Render("📄 Node Configuration")
 
@@ -352,9 +421,34 @@ func RenderNodeConfig(s *state.AppState) string {
 		"Copy this configuration to /etc/archon/node-config.toml on your server (" + node.IPAddress.String() + ")",
 	)
 
-	help := helpStyle.Render("\nPress Esc to go back • Press s to save to file")
+	// Build the full content
+	fullContent := instructions + "\n\n" + configContent
 
-	return title + "\n\n" + instructions + "\n\n" + configContent + "\n" + help
+	// Initialize viewport if needed
+	if s.NodeConfigViewport.Width == 0 {
+		// Set viewport size based on window dimensions
+		// Leave room for title (3 lines), help (2 lines), and some padding
+		viewportHeight := s.WindowHeight - 7
+		if viewportHeight < 10 {
+			viewportHeight = 10
+		}
+
+		s.NodeConfigViewport = viewport.New(s.WindowWidth-4, viewportHeight)
+		s.NodeConfigViewport.SetContent(fullContent)
+	} else {
+		// Update content if viewport already exists
+		s.NodeConfigViewport.SetContent(fullContent)
+	}
+
+	help := helpStyle.Render("\n↑/↓ to scroll • PgUp/PgDn for page • Home/End to jump • Esc to go back • s to save")
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		s.NodeConfigViewport.View(),
+		help,
+	)
 }
 
 // renderNodeSidebar renders a sidebar showing sites deployed on the selected node

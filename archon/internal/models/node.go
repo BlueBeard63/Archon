@@ -16,12 +16,21 @@ const (
 	NodeStatusDegraded NodeStatus = "degraded"
 )
 
+type ProxyType string
+
+const (
+	ProxyTypeNginx   ProxyType = "nginx"
+	ProxyTypeApache  ProxyType = "apache"
+	ProxyTypeTraefik ProxyType = "traefik"
+)
+
 type Node struct {
 	ID              uuid.UUID    `json:"id" toml:"id"`
 	Name            string       `json:"name" toml:"name"`
 	APIEndpoint     string       `json:"api_endpoint" toml:"api_endpoint"`
 	APIKey          string       `json:"api_key" toml:"api_key"`
 	IPAddress       net.IP       `json:"ip_address" toml:"ip_address"`
+	ProxyType       ProxyType    `json:"proxy_type" toml:"proxy_type"`
 	Status          NodeStatus   `json:"status" toml:"status"`
 	DockerInfo      *DockerInfo  `json:"docker_info,omitempty" toml:"docker_info,omitempty"`
 	TraefikInfo     *TraefikInfo `json:"traefik_info,omitempty" toml:"traefik_info,omitempty"`
@@ -41,22 +50,99 @@ type TraefikInfo struct {
 }
 
 // NewNode creates a new Node with default values
-func NewNode(name, apiEndpoint, apiKey string, ipAddress net.IP) *Node {
+func NewNode(name, apiEndpoint, apiKey string, ipAddress net.IP, proxyType ProxyType) *Node {
+	// Default to nginx if proxy type is empty
+	if proxyType == "" {
+		proxyType = ProxyTypeNginx
+	}
+
 	return &Node{
 		ID:          uuid.New(),
 		Name:        name,
 		APIEndpoint: apiEndpoint,
 		APIKey:      apiKey,
 		IPAddress:   ipAddress,
+		ProxyType:   proxyType,
 		Status:      NodeStatusUnknown,
 	}
 }
 
+// generateSSLConfig generates SSL configuration based on proxy type
+func (n *Node) generateSSLConfig() string {
+	if n.ProxyType == ProxyTypeTraefik {
+		return `# Traefik handles SSL automatically
+[ssl]
+mode = "traefik-auto"
+cert_dir = ""
+email = "admin@example.com"  # CHANGE THIS to your email`
+	}
+
+	// For Nginx and Apache
+	return `# Let's Encrypt automatic SSL
+[ssl]
+mode = "letsencrypt"
+cert_dir = "/etc/archon/ssl"
+email = "admin@example.com"  # CHANGE THIS to your email
+
+[letsencrypt]
+enabled = true
+email = "admin@example.com"  # CHANGE THIS to your email
+staging_mode = false  # Set to true for testing`
+}
+
+// generateInstallInstructions generates installation instructions based on proxy type
+func (n *Node) generateInstallInstructions() string {
+	var packages string
+	switch n.ProxyType {
+	case ProxyTypeNginx:
+		packages = "docker.io nginx certbot"
+	case ProxyTypeApache:
+		packages = "docker.io apache2 certbot"
+	case ProxyTypeTraefik:
+		packages = "docker.io"
+	default:
+		packages = "docker.io nginx certbot"
+	}
+
+	return `# 1. Install prerequisites on your server (` + n.IPAddress.String() + `):
+#    Ubuntu/Debian:
+#      sudo apt update
+#      sudo apt install ` + packages + `
+#      sudo systemctl enable docker
+#      sudo systemctl start docker`
+}
+
 // GenerateNodeConfigTOML generates the TOML configuration file content for this node
 func (n *Node) GenerateNodeConfigTOML() string {
+	// Determine proxy configuration based on selected type
+	var proxyConfig string
+	switch n.ProxyType {
+	case ProxyTypeNginx:
+		proxyConfig = `[proxy]
+type = "nginx"
+config_dir = "/etc/nginx/sites-enabled"
+reload_command = "nginx -s reload"`
+	case ProxyTypeApache:
+		proxyConfig = `[proxy]
+type = "apache"
+config_dir = "/etc/apache2/sites-enabled"
+reload_command = "apache2ctl graceful"`
+	case ProxyTypeTraefik:
+		proxyConfig = `[proxy]
+type = "traefik"
+config_dir = ""
+reload_command = ""`
+	default:
+		proxyConfig = `[proxy]
+type = "nginx"
+config_dir = "/etc/nginx/sites-enabled"
+reload_command = "nginx -s reload"`
+	}
+
 	return `# Archon Node Server Configuration
 # Place this file at: /etc/archon/node-config.toml
 # Generated for node: ` + n.Name + `
+# Proxy Type: ` + string(n.ProxyType) + `
 
 [server]
 host = "0.0.0.0"
@@ -66,26 +152,10 @@ api_key = "` + n.APIKey + `"
 data_dir = "/var/lib/archon"
 
 # ==============================================================================
-# Proxy Configuration - Choose ONE of the following proxy types
+# Proxy Configuration
 # ==============================================================================
 
-# --- OPTION 1: Nginx with Let's Encrypt (Recommended for most users) ---
-[proxy]
-type = "nginx"
-config_dir = "/etc/nginx/sites-enabled"
-reload_command = "nginx -s reload"
-
-# --- OPTION 2: Apache with Let's Encrypt ---
-# [proxy]
-# type = "apache"
-# config_dir = "/etc/apache2/sites-enabled"
-# reload_command = "apache2ctl graceful"
-
-# --- OPTION 3: Traefik (Best for auto-SSL and dynamic routing) ---
-# [proxy]
-# type = "traefik"
-# config_dir = ""
-# reload_command = ""
+` + proxyConfig + `
 
 # ==============================================================================
 # Docker Configuration
@@ -96,45 +166,15 @@ host = "unix:///var/run/docker.sock"
 network = "archon-net"
 
 # ==============================================================================
-# SSL Configuration - Choose mode based on your proxy type
+# SSL Configuration
 # ==============================================================================
 
-# --- For Nginx/Apache: Let's Encrypt (Automatic SSL) ---
-[ssl]
-mode = "letsencrypt"
-cert_dir = "/etc/archon/ssl"
-email = "admin@example.com"  # CHANGE THIS to your email
-
-[letsencrypt]
-enabled = true
-email = "admin@example.com"  # CHANGE THIS to your email
-staging_mode = false  # Set to true for testing
-
-# --- For Nginx/Apache: Manual SSL (Upload your own certificates) ---
-# [ssl]
-# mode = "manual"
-# cert_dir = "/etc/archon/ssl"
-# email = ""
-
-# --- For Traefik: Auto SSL (Traefik handles everything) ---
-# [ssl]
-# mode = "traefik-auto"
-# cert_dir = ""
-# email = "admin@example.com"  # CHANGE THIS to your email
+` + n.generateSSLConfig() + `
 
 # ==============================================================================
 # Installation Instructions
 # ==============================================================================
-# 1. Install prerequisites on your server (` + n.IPAddress.String() + `):
-#    Ubuntu/Debian:
-#      sudo apt update
-#      sudo apt install docker.io nginx certbot
-#      sudo systemctl enable docker
-#      sudo systemctl start docker
-#
-#    For Traefik instead of nginx:
-#      sudo apt update
-#      sudo apt install docker.io
+` + n.generateInstallInstructions() + `
 #
 # 2. Create directories:
 #      sudo mkdir -p /etc/archon

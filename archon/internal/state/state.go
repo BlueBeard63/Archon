@@ -4,6 +4,7 @@ import (
 	"github.com/google/uuid"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/BlueBeard63/archon/internal/models"
 )
 
@@ -61,6 +62,9 @@ type AppState struct {
 	SitesTable   TableComponent `json:"-"`
 	DomainsTable TableComponent `json:"-"`
 	NodesTable   TableComponent `json:"-"`
+
+	// Viewport for scrollable content (runtime only, not serialized)
+	NodeConfigViewport viewport.Model `json:"-"`
 
 	// Form state (for create/edit screens)
 	FormFields        []string `json:"form_fields"`        // Current values of form fields

@@ -85,6 +85,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNodeCreateKeys(msg)
 	case state.ScreenSettings:
 		return m.handleSettingsKeys(msg)
+	case state.ScreenNodeConfig:
+		return m.handleNodeConfigKeys(msg)
 	case state.ScreenHelp:
 		return m.handleHelpKeys(msg)
 	}
@@ -627,23 +629,88 @@ func (m Model) handleNodesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleNodeCreateKeys handles keys on the node creation form
 func (m Model) handleNodeCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Check if we're on proxy field (index 2)
+	isProxyField := m.state.CurrentFieldIndex == 2
+
+	// Handle dropdown-specific keys when dropdown is open
+	if m.state.DropdownOpen && isProxyField {
+		proxies := []string{"nginx", "apache", "traefik"}
+
+		switch msg.Type {
+		case tea.KeyUp:
+			if m.state.DropdownIndex > 0 {
+				m.state.DropdownIndex--
+			}
+			return m, nil
+		case tea.KeyDown:
+			if m.state.DropdownIndex < len(proxies)-1 {
+				m.state.DropdownIndex++
+			}
+			return m, nil
+		case tea.KeyEnter, tea.KeyTab:
+			// Confirm selection
+			m.state.FormFields[2] = proxies[m.state.DropdownIndex]
+			m.state.DropdownOpen = false
+			if msg.Type == tea.KeyTab {
+				// Move to next field (cycle through 0, 1, 2)
+				m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % 3
+			}
+			return m, nil
+		case tea.KeyEsc:
+			// Close dropdown without changing selection
+			m.state.DropdownOpen = false
+			return m, nil
+		}
+		return m, nil
+	}
+
+	// If on proxy field but dropdown not open
+	if isProxyField && !m.state.DropdownOpen {
+		switch msg.Type {
+		case tea.KeyEnter, tea.KeyDown:
+			// Open dropdown
+			m.state.DropdownOpen = true
+			// Set dropdown index based on current selection
+			proxies := []string{"nginx", "apache", "traefik"}
+			for i, p := range proxies {
+				if p == m.state.FormFields[2] {
+					m.state.DropdownIndex = i
+					break
+				}
+			}
+			return m, nil
+		case tea.KeyTab:
+			// Move to next field without opening dropdown
+			m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % 3
+			return m, nil
+		case tea.KeyShiftTab:
+			// Move to previous field
+			m.state.CurrentFieldIndex--
+			if m.state.CurrentFieldIndex < 0 {
+				m.state.CurrentFieldIndex = 2
+			}
+			return m, nil
+		}
+	}
+
+	// Handle regular text input for Name and API Endpoint fields (0, 1)
 	switch msg.Type {
 	case tea.KeySpace:
-		// Add space to current field (only editable fields - first 2)
+		// Add space to current field (only editable text fields - first 2)
 		if m.state.CurrentFieldIndex < 2 {
 			m.state.FormFields[m.state.CurrentFieldIndex] += " "
 		}
 		return m, nil
 
 	case tea.KeyRunes:
-		// Add character to current field (only editable fields - first 2)
+		// Add character to current field (only editable text fields - first 2)
 		if m.state.CurrentFieldIndex < 2 {
 			m.state.FormFields[m.state.CurrentFieldIndex] += string(msg.Runes)
 		}
 		return m, nil
 
 	case tea.KeyBackspace:
-		// Remove last character from current field (only editable fields - first 2)
+		// Remove last character from current field (only editable text fields - first 2)
 		if m.state.CurrentFieldIndex < 2 {
 			value := m.state.FormFields[m.state.CurrentFieldIndex]
 			if len(value) > 0 {
@@ -653,21 +720,67 @@ func (m Model) handleNodeCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyTab:
-		// Move to next field (only cycle through editable fields - first 2)
-		m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % 2
+		// Move to next field (cycle through editable fields: 0, 1, 2)
+		m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % 3
 		return m, nil
 
 	case tea.KeyShiftTab:
-		// Move to previous field (only cycle through editable fields - first 2)
+		// Move to previous field
 		m.state.CurrentFieldIndex--
 		if m.state.CurrentFieldIndex < 0 {
-			m.state.CurrentFieldIndex = 1
+			m.state.CurrentFieldIndex = 2
 		}
 		return m, nil
 
 	case tea.KeyEnter:
-		// Submit form
-		return m.handleNodeCreateSubmit()
+		// Submit form (only if not on proxy field or dropdown is not open)
+		if !isProxyField {
+			return m.handleNodeCreateSubmit()
+		}
+	}
+
+	return m, nil
+}
+
+// handleNodeConfigKeys handles keys on the node config screen (scrollable viewport)
+func (m Model) handleNodeConfigKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
+	switch msg.String() {
+	case "down", "j":
+		// Scroll down one line
+		m.state.NodeConfigViewport.LineDown(1)
+		return m, nil
+
+	case "up", "k":
+		// Scroll up one line
+		m.state.NodeConfigViewport.LineUp(1)
+		return m, nil
+
+	case "pgdown", "f":
+		// Scroll down one page
+		m.state.NodeConfigViewport, cmd = m.state.NodeConfigViewport.Update(msg)
+		return m, cmd
+
+	case "pgup", "b":
+		// Scroll up one page
+		m.state.NodeConfigViewport, cmd = m.state.NodeConfigViewport.Update(msg)
+		return m, cmd
+
+	case "home", "g":
+		// Jump to top
+		m.state.NodeConfigViewport.GotoTop()
+		return m, nil
+
+	case "end", "G":
+		// Jump to bottom
+		m.state.NodeConfigViewport.GotoBottom()
+		return m, nil
+
+	case "s":
+		// TODO: Save config to file
+		m.state.AddNotification("Save to file not yet implemented", "info")
+		return m, nil
 	}
 
 	return m, nil
@@ -1144,17 +1257,43 @@ func (m Model) handleNodeCreateSubmit() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Create new node with generated API key
+	// Parse proxy type from field 2
+	proxyTypeStr := m.state.FormFields[2]
+	var proxyType models.ProxyType
+	switch proxyTypeStr {
+	case "nginx":
+		proxyType = models.ProxyTypeNginx
+	case "apache":
+		proxyType = models.ProxyTypeApache
+	case "traefik":
+		proxyType = models.ProxyTypeTraefik
+	default:
+		proxyType = models.ProxyTypeNginx
+	}
+
+	// Create new node with proxy type and generated API key
 	node := models.NewNode(
 		m.state.FormFields[0], // name
 		m.state.FormFields[1], // endpoint
-		m.state.FormFields[2], // generated api key
+		m.state.FormFields[3], // generated api key (now field 3)
 		ip,
+		proxyType, // proxy type
 	)
 
 	m.state.Nodes = append(m.state.Nodes, *node)
 
-	m.state.AddNotification("Node created: "+node.Name+" (API Key: "+node.APIKey+")", "success")
+	// Get proxy label for notification
+	proxyLabels := map[string]string{
+		"nginx":   "Nginx",
+		"apache":  "Apache2",
+		"traefik": "Traefik",
+	}
+	proxyLabel := proxyLabels[proxyTypeStr]
+	if proxyLabel == "" {
+		proxyLabel = proxyTypeStr
+	}
+
+	m.state.AddNotification(fmt.Sprintf("Node created: %s (%s, API Key: %s)", node.Name, proxyLabel, node.APIKey), "success")
 
 	// Auto-save config if enabled
 	if m.state.AutoSave {
