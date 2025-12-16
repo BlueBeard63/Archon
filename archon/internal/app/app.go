@@ -127,6 +127,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state.NavigateTo(state.ScreenNodesList)
 				return m, nil
 			}
+			if m.zone.Get("tab:settings").InBounds(msg) {
+				m.state.NavigateTo(state.ScreenSettings)
+				return m, nil
+			}
 			if m.zone.Get("tab:help").InBounds(msg) {
 				m.state.NavigateTo(state.ScreenHelp)
 				return m, nil

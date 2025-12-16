@@ -911,6 +911,8 @@ func (m Model) handleTabClick(zoneID string) (tea.Model, tea.Cmd) {
 		m.state.NavigateTo(state.ScreenDomainsList)
 	case "nodes":
 		m.state.NavigateTo(state.ScreenNodesList)
+	case "settings":
+		m.state.NavigateTo(state.ScreenSettings)
 	case "help":
 		m.state.NavigateTo(state.ScreenHelp)
 	}
