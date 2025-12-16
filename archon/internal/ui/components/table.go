@@ -7,11 +7,11 @@ import (
 
 // TableComponent wraps bubbles.table with common styling and mouse support
 type TableComponent struct {
-	table         table.Model
-	headerHeight  int
-	menuHeight    int
-	tableStartY   int
-	rowCount      int
+	table        table.Model
+	headerHeight int
+	menuHeight   int
+	tableStartY  int
+	rowCount     int
 }
 
 // NewTableComponent creates a new table component
@@ -85,8 +85,8 @@ func (c *TableComponent) HandleMouseClick(clickY int) int {
 	return -1
 }
 
-// Update updates the table with new rows
-func (c *TableComponent) Update(rows []table.Row) {
+// SetRows updates the table with new rows
+func (c *TableComponent) SetRows(rows []table.Row) {
 	c.table.SetRows(rows)
 	c.rowCount = len(rows)
 }
