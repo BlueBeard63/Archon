@@ -3,10 +3,10 @@ package ui
 import (
 	zone "github.com/lrstanley/bubblezone"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/BlueBeard63/archon/internal/state"
 	"github.com/BlueBeard63/archon/internal/ui/components"
 	"github.com/BlueBeard63/archon/internal/ui/screens"
+	"github.com/charmbracelet/lipgloss"
 )
 
 var tabBar = components.NewTabBar()

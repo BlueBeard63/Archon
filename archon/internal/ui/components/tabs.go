@@ -73,6 +73,7 @@ func NewTabBar() *TabBar {
 			{ID: "sites", Label: "🌐 Sites", Screen: state.ScreenSitesList},
 			{ID: "domains", Label: "🌍 Domains", Screen: state.ScreenDomainsList},
 			{ID: "nodes", Label: "🖥️  Nodes", Screen: state.ScreenNodesList},
+			{ID: "settings", Label: "⚙️  Settings", Screen: state.ScreenSettings},
 			{ID: "help", Label: "❓ Help", Screen: state.ScreenHelp},
 		},
 		Active: state.ScreenDashboard,

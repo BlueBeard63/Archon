@@ -44,16 +44,9 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		var rows []table.Row
 		for _, site := range s.Sites {
 			// Get domain and node names
-			domainName := site.DomainID.String()[:8] + "..."
 			nodeName := site.NodeID.String()[:8] + "..."
 
-			// Find actual names if possible
-			for _, d := range s.Domains {
-				if d.ID == site.DomainID {
-					domainName = d.Name
-					break
-				}
-			}
+			// Find node name
 			for _, n := range s.Nodes {
 				if n.ID == site.NodeID {
 					nodeName = n.Name
@@ -61,11 +54,35 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 				}
 			}
 
+			// Get domain mappings (supports multiple domains)
+			mappings := site.GetDomainMappings()
+			var domainDisplay, portDisplay string
+
+			if len(mappings) == 0 {
+				domainDisplay = "(none)"
+				portDisplay = "-"
+			} else if len(mappings) == 1 {
+				// Single domain - show name and port
+				domainName := mappings[0].DomainID.String()[:8] + "..."
+				for _, d := range s.Domains {
+					if d.ID == mappings[0].DomainID {
+						domainName = d.Name
+						break
+					}
+				}
+				domainDisplay = domainName
+				portDisplay = fmt.Sprintf("%d", mappings[0].Port)
+			} else {
+				// Multiple domains - show count
+				domainDisplay = fmt.Sprintf("Multiple (%d)", len(mappings))
+				portDisplay = fmt.Sprintf("%d+", mappings[0].Port)
+			}
+
 			rows = append(rows, table.Row{
 				truncate(site.Name, 25),
-				truncate(domainName, 18),
+				truncate(domainDisplay, 18),
 				truncate(nodeName, 25),
-				fmt.Sprintf("%d", site.Port),
+				portDisplay,
 				string(site.Status),
 			})
 		}
@@ -172,55 +189,14 @@ func truncate(s string, maxLen int) string {
 
 // RenderSiteCreate renders the site creation form
 func RenderSiteCreate(s *state.AppState) string {
-	// Initialize form if needed (5 basic fields for now)
-	if len(s.FormFields) != 5 {
-		s.FormFields = []string{"", "", "", "", "8080"}
-		s.CurrentFieldIndex = 0
-	}
-
-	title := titleStyle.Render("Create New Site")
-
-	labels := []string{
-		"Name:",
-		"Domain (name):",
-		"Node (name):",
-		"Docker Image:",
-		"Port:",
-	}
-
-	// Render each field
-	var fields string
-	for i, label := range labels {
-		value := s.FormFields[i]
-		displayValue := value
-
-		// Show cursor if focused
-		if i == s.CurrentFieldIndex {
-			displayValue = value + "_"
-			label = "> " + label // Show arrow for focused field
-		} else {
-			label = "  " + label
-		}
-
-		fields += label + " " + displayValue + "\n"
-	}
-
-	help := helpStyle.Render("\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel")
-	note := helpStyle.Render("Note: Domain and Node must already exist")
-
-	return title + "\n\n" + fields + "\n" + help + "\n" + note
+	return RenderSiteCreateWithZones(s, nil)
 }
 
 // RenderSiteCreateWithZones renders the site creation form with clickable fields
 func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
-	// Fall back to regular rendering if no zone manager
-	if zm == nil {
-		return RenderSiteCreate(s)
-	}
-
-	// Initialize form if needed (5 basic fields for now)
-	if len(s.FormFields) != 5 {
-		s.FormFields = []string{"", "", "", "", "8080"}
+	// Initialize form if needed (7 fields: basic + env vars + config file)
+	if len(s.FormFields) != 7 {
+		s.FormFields = []string{"", "", "", "", "8080", "", ""}
 		s.CurrentFieldIndex = 0
 	}
 
@@ -228,10 +204,12 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 
 	labels := []string{
 		"Name:",
-		"Domain (name):",
-		"Node (name):",
+		"Domain:",
+		"Node:",
 		"Docker Image:",
 		"Port:",
+		"Env Vars (KEY=VALUE, one per line):",
+		"Config File Path (optional):",
 	}
 
 	// Render each field with zones
@@ -251,12 +229,90 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		// Wrap the entire field line in a clickable zone
 		fieldLine := label + " " + displayValue + "\n"
 		fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
+
+		// Show dropdown options for Domain (index 1) and Node (index 2) when focused
+		if i == s.CurrentFieldIndex && i == 1 && s.DropdownOpen {
+			// Domain dropdown
+			dropdownOptions := renderDropdownOptions(s, s.Domains, s.DropdownIndex, func(d models.Domain) string {
+				return d.Name
+			})
+			fields += dropdownOptions + "\n"
+		} else if i == s.CurrentFieldIndex && i == 2 && s.DropdownOpen {
+			// Node dropdown
+			dropdownOptions := renderDropdownOptions(s, s.Nodes, s.DropdownIndex, func(n models.Node) string {
+				return n.Name
+			})
+			fields += dropdownOptions + "\n"
+		}
 	}
 
-	help := helpStyle.Render("\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel")
-	note := helpStyle.Render("Note: Domain and Node must already exist")
+	helpText := "\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel"
+	if s.CurrentFieldIndex == 1 || s.CurrentFieldIndex == 2 {
+		// On dropdown fields
+		if s.DropdownOpen {
+			helpText = "\nUp/Down to select, Enter/Tab to confirm, Esc to cancel"
+		} else {
+			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
+		}
+	} else if s.CurrentFieldIndex == 5 {
+		helpText = "\nEnter env vars as KEY=VALUE (use | to separate multiple vars)"
+	} else if s.CurrentFieldIndex == 6 {
+		helpText = "\nEnter full path to config file (will be loaded when site is created)"
+	}
+
+	help := helpStyle.Render(helpText)
+	note := helpStyle.Render("Note: Domain/Node use dropdowns • Env vars and config file are optional")
 
 	return title + "\n\n" + fields + "\n" + help + "\n" + note
+}
+
+// renderDropdownOptions renders a dropdown list of options
+func renderDropdownOptions[T any](s *state.AppState, items []T, selectedIndex int, getName func(T) string) string {
+	if len(items) == 0 {
+		return "     (No options available)"
+	}
+
+	var options strings.Builder
+	options.WriteString("     ┌─────────────────────────────────┐\n")
+
+	maxVisible := 5 // Show up to 5 options at a time
+	start := 0
+	end := len(items)
+
+	// Calculate scroll window if too many items
+	if len(items) > maxVisible {
+		// Keep selected item in middle of window
+		start = selectedIndex - maxVisible/2
+		if start < 0 {
+			start = 0
+		}
+		end = start + maxVisible
+		if end > len(items) {
+			end = len(items)
+			start = end - maxVisible
+			if start < 0 {
+				start = 0
+			}
+		}
+	}
+
+	for i := start; i < end; i++ {
+		name := getName(items[i])
+		if i == selectedIndex {
+			options.WriteString(fmt.Sprintf("     │ ▶ %-29s │\n", truncate(name, 29)))
+		} else {
+			options.WriteString(fmt.Sprintf("     │   %-29s │\n", truncate(name, 29)))
+		}
+	}
+
+	options.WriteString("     └─────────────────────────────────┘")
+
+	// Show scroll indicator if needed
+	if len(items) > maxVisible {
+		options.WriteString(fmt.Sprintf(" (%d/%d)", selectedIndex+1, len(items)))
+	}
+
+	return options.String()
 }
 
 // boolToYesNo converts boolean to "Yes"/"No" string
@@ -277,17 +333,40 @@ func renderSiteSidebar(s *state.AppState, site *models.Site) string {
 
 	title := lipgloss.NewStyle().Bold(true).Render("🔗 Relationships")
 
-	// Find domain
+	// Get all domain mappings
+	mappings := site.GetDomainMappings()
 	var domainInfo string
-	for _, d := range s.Domains {
-		if d.ID == site.DomainID {
-			domainInfo = fmt.Sprintf("🌍 Domain: %s\n   Provider: %s",
-				d.Name, d.ProviderName())
-			break
+
+	if len(mappings) == 0 {
+		domainInfo = "🌍 Domains: None"
+	} else if len(mappings) == 1 {
+		// Single domain - show detailed info
+		mapping := mappings[0]
+		domainName := "Unknown"
+		provider := "Unknown"
+		for _, d := range s.Domains {
+			if d.ID == mapping.DomainID {
+				domainName = d.Name
+				provider = d.ProviderName()
+				break
+			}
 		}
-	}
-	if domainInfo == "" {
-		domainInfo = "🌍 Domain: Not found"
+		domainInfo = fmt.Sprintf("🌍 Domain: %s\n   Provider: %s\n   Port: %d",
+			domainName, provider, mapping.Port)
+	} else {
+		// Multiple domains - list them all
+		domainInfo = fmt.Sprintf("🌍 Domains (%d):\n", len(mappings))
+		for i, mapping := range mappings {
+			domainName := mapping.DomainID.String()[:8] + "..."
+			for _, d := range s.Domains {
+				if d.ID == mapping.DomainID {
+					domainName = d.Name
+					break
+				}
+			}
+			domainInfo += fmt.Sprintf("   %d. %s:%d\n", i+1, domainName, mapping.Port)
+		}
+		domainInfo = strings.TrimSuffix(domainInfo, "\n")
 	}
 
 	// Find node

@@ -65,6 +65,8 @@ type AppState struct {
 	// Form state (for create/edit screens)
 	FormFields        []string `json:"form_fields"`        // Current values of form fields
 	CurrentFieldIndex int      `json:"current_field_index"` // Which field has focus
+	DropdownOpen      bool     `json:"dropdown_open"`       // Is a dropdown currently expanded
+	DropdownIndex     int      `json:"dropdown_index"`      // Currently highlighted option in dropdown
 
 	// Async operations tracking
 	PendingOperations []AsyncOperation `json:"pending_operations"`

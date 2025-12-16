@@ -3,6 +3,8 @@ package app
 import (
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -139,7 +141,77 @@ func (m Model) handleSitesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleSiteCreateKeys handles keys on the site creation form
 func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Check if we're on a dropdown field (Domain=1, Node=2)
+	isDropdownField := m.state.CurrentFieldIndex == 1 || m.state.CurrentFieldIndex == 2
+
+	// Handle dropdown-specific keys when dropdown is open
+	if m.state.DropdownOpen && isDropdownField {
+		switch msg.Type {
+		case tea.KeyUp:
+			// Navigate up in dropdown
+			if m.state.DropdownIndex > 0 {
+				m.state.DropdownIndex--
+			}
+			return m, nil
+
+		case tea.KeyDown:
+			// Navigate down in dropdown
+			maxIndex := 0
+			if m.state.CurrentFieldIndex == 1 {
+				maxIndex = len(m.state.Domains) - 1
+			} else if m.state.CurrentFieldIndex == 2 {
+				maxIndex = len(m.state.Nodes) - 1
+			}
+			if m.state.DropdownIndex < maxIndex {
+				m.state.DropdownIndex++
+			}
+			return m, nil
+
+		case tea.KeyEnter, tea.KeyTab:
+			// Confirm selection and close dropdown
+			if m.state.CurrentFieldIndex == 1 && len(m.state.Domains) > 0 {
+				m.state.FormFields[1] = m.state.Domains[m.state.DropdownIndex].Name
+			} else if m.state.CurrentFieldIndex == 2 && len(m.state.Nodes) > 0 {
+				m.state.FormFields[2] = m.state.Nodes[m.state.DropdownIndex].Name
+			}
+			m.state.DropdownOpen = false
+
+			// If Tab, move to next field
+			if msg.Type == tea.KeyTab {
+				m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % len(m.state.FormFields)
+			}
+			return m, nil
+
+		case tea.KeyEsc:
+			// Close dropdown without selecting
+			m.state.DropdownOpen = false
+			return m, nil
+
+		case tea.KeyBackspace, tea.KeyRunes, tea.KeySpace:
+			// Close dropdown and allow manual input
+			m.state.DropdownOpen = false
+			// Fall through to normal input handling
+		}
+	}
+
+	// Normal field input handling
 	switch msg.Type {
+	case tea.KeyUp:
+		// Open dropdown on up arrow if on dropdown field and not open
+		if isDropdownField && !m.state.DropdownOpen {
+			m.state.DropdownOpen = true
+			m.state.DropdownIndex = 0
+			return m, nil
+		}
+
+	case tea.KeyDown:
+		// Open dropdown on down arrow if on dropdown field and not open
+		if isDropdownField && !m.state.DropdownOpen {
+			m.state.DropdownOpen = true
+			m.state.DropdownIndex = 0
+			return m, nil
+		}
+
 	case tea.KeySpace:
 		// Add space to current field
 		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
@@ -165,11 +237,19 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyTab:
+		// Close dropdown if open
+		if m.state.DropdownOpen {
+			m.state.DropdownOpen = false
+		}
 		// Move to next field
 		m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % len(m.state.FormFields)
 		return m, nil
 
 	case tea.KeyShiftTab:
+		// Close dropdown if open
+		if m.state.DropdownOpen {
+			m.state.DropdownOpen = false
+		}
 		// Move to previous field
 		m.state.CurrentFieldIndex--
 		if m.state.CurrentFieldIndex < 0 {
@@ -178,7 +258,13 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyEnter:
-		// Submit form
+		// If on dropdown field and not open, open it
+		if isDropdownField && !m.state.DropdownOpen {
+			m.state.DropdownOpen = true
+			m.state.DropdownIndex = 0
+			return m, nil
+		}
+		// Otherwise submit form
 		return m.handleSiteCreateSubmit()
 	}
 
@@ -524,10 +610,10 @@ func (m Model) handleFormSubmit() (tea.Model, tea.Cmd) {
 
 // handleSiteCreateSubmit processes site creation form submission
 func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
-	// Validate all fields are filled
-	for _, field := range m.state.FormFields {
-		if field == "" {
-			m.state.AddNotification("All fields are required", "error")
+	// Validate required fields (first 5 fields, last 2 are optional)
+	for i := 0; i < 5; i++ {
+		if m.state.FormFields[i] == "" {
+			m.state.AddNotification("Required fields (Name, Domain, Node, Image, Port) must be filled", "error")
 			return m, nil
 		}
 	}
@@ -572,6 +658,43 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 
 	// Create new site
 	site := models.NewSite(m.state.FormFields[0], domainID, nodeID, m.state.FormFields[3], port)
+
+	// Parse environment variables (field 5) if provided
+	if m.state.FormFields[5] != "" {
+		envVars := strings.Split(m.state.FormFields[5], "|")
+		for _, envVar := range envVars {
+			envVar = strings.TrimSpace(envVar)
+			if envVar == "" {
+				continue
+			}
+			parts := strings.SplitN(envVar, "=", 2)
+			if len(parts) == 2 {
+				key := strings.TrimSpace(parts[0])
+				value := strings.TrimSpace(parts[1])
+				if key != "" {
+					site.EnvironmentVars[key] = value
+				}
+			}
+		}
+	}
+
+	// Load config file (field 6) if provided
+	if m.state.FormFields[6] != "" {
+		configPath := strings.TrimSpace(m.state.FormFields[6])
+		content, err := os.ReadFile(configPath)
+		if err != nil {
+			m.state.AddNotification("Failed to read config file: "+err.Error(), "warning")
+		} else {
+			// Extract filename from path
+			filename := filepath.Base(configPath)
+			site.ConfigFiles = append(site.ConfigFiles, models.ConfigFile{
+				Name:          filename,
+				Content:       string(content),
+				ContainerPath: "/config/" + filename, // Default container path
+			})
+		}
+	}
+
 	m.state.Sites = append(m.state.Sites, *site)
 
 	m.state.AddNotification("Site created: "+site.Name, "success")
