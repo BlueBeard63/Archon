@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"net"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
@@ -308,22 +309,22 @@ func (m Model) handleNodesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleNodeCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeySpace:
-		// Add space to current field
-		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+		// Add space to current field (only editable fields - first 2)
+		if m.state.CurrentFieldIndex < 2 {
 			m.state.FormFields[m.state.CurrentFieldIndex] += " "
 		}
 		return m, nil
 
 	case tea.KeyRunes:
-		// Add character to current field
-		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+		// Add character to current field (only editable fields - first 2)
+		if m.state.CurrentFieldIndex < 2 {
 			m.state.FormFields[m.state.CurrentFieldIndex] += string(msg.Runes)
 		}
 		return m, nil
 
 	case tea.KeyBackspace:
-		// Remove last character from current field
-		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+		// Remove last character from current field (only editable fields - first 2)
+		if m.state.CurrentFieldIndex < 2 {
 			value := m.state.FormFields[m.state.CurrentFieldIndex]
 			if len(value) > 0 {
 				m.state.FormFields[m.state.CurrentFieldIndex] = value[:len(value)-1]
@@ -332,15 +333,15 @@ func (m Model) handleNodeCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyTab:
-		// Move to next field
-		m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % len(m.state.FormFields)
+		// Move to next field (only cycle through editable fields - first 2)
+		m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % 2
 		return m, nil
 
 	case tea.KeyShiftTab:
-		// Move to previous field
+		// Move to previous field (only cycle through editable fields - first 2)
 		m.state.CurrentFieldIndex--
 		if m.state.CurrentFieldIndex < 0 {
-			m.state.CurrentFieldIndex = len(m.state.FormFields) - 1
+			m.state.CurrentFieldIndex = 1
 		}
 		return m, nil
 
@@ -627,20 +628,36 @@ func (m Model) handleDomainEditSubmit() (tea.Model, tea.Cmd) {
 
 // handleNodeCreateSubmit processes node creation form submission
 func (m Model) handleNodeCreateSubmit() (tea.Model, tea.Cmd) {
-	// Validate all fields are filled
-	for i, field := range m.state.FormFields {
-		if field == "" {
-			labels := []string{"Name", "API Endpoint", "API Key", "IP Address"}
-			m.state.AddNotification(labels[i]+" is required", "error")
-			return m, nil
-		}
+	// Validate editable fields are filled (first 2)
+	if m.state.FormFields[0] == "" {
+		m.state.AddNotification("Name is required", "error")
+		return m, nil
+	}
+	if m.state.FormFields[1] == "" {
+		m.state.AddNotification("API Endpoint is required", "error")
+		return m, nil
 	}
 
-	// Parse IP address
-	ip := net.ParseIP(m.state.FormFields[3])
+	// Try to extract IP from API endpoint, or use placeholder
+	endpoint := m.state.FormFields[1]
+	var ip net.IP
+
+	// Try to extract hostname from URL
+	if strings.Contains(endpoint, "://") {
+		// Parse as URL
+		parts := strings.Split(endpoint, "://")
+		if len(parts) > 1 {
+			host := strings.Split(parts[1], ":")[0] // Remove port if present
+			ip = net.ParseIP(host)
+		}
+	} else {
+		// Try direct IP parse
+		ip = net.ParseIP(endpoint)
+	}
+
+	// If still no valid IP, use placeholder
 	if ip == nil {
-		m.state.AddNotification("Invalid IP address", "error")
-		return m, nil
+		ip = net.ParseIP("0.0.0.0")
 	}
 
 	// Check for duplicate name
@@ -651,17 +668,17 @@ func (m Model) handleNodeCreateSubmit() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Create new node
+	// Create new node with generated API key
 	node := models.NewNode(
 		m.state.FormFields[0], // name
 		m.state.FormFields[1], // endpoint
-		m.state.FormFields[2], // api key
+		m.state.FormFields[2], // generated api key
 		ip,
 	)
 
 	m.state.Nodes = append(m.state.Nodes, *node)
 
-	m.state.AddNotification("Node created: "+node.Name, "success")
+	m.state.AddNotification("Node created: "+node.Name+" (API Key: "+node.APIKey+")", "success")
 
 	// Auto-save config if enabled
 	if m.state.AutoSave {

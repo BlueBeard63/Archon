@@ -1,8 +1,11 @@
 package screens
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
@@ -157,17 +160,27 @@ func truncateNode(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
+// generateAPIKey generates a random 32-character API key
+func generateAPIKey() string {
+	bytes := make([]byte, 24) // 24 bytes = 32 base64 characters
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to less secure but working key
+		return fmt.Sprintf("%032x", time.Now().UnixNano())
+	}
+	return base64.URLEncoding.EncodeToString(bytes)
+}
+
 // RenderNodeCreate renders the node creation form
 func RenderNodeCreate(s *state.AppState) string {
-	// Initialize form if needed (4 fields)
-	if len(s.FormFields) != 4 {
-		s.FormFields = []string{"", "", "", ""}
+	// Initialize form if needed (2 editable fields + 1 generated field)
+	if len(s.FormFields) != 3 {
+		s.FormFields = []string{"", "", generateAPIKey()}
 		s.CurrentFieldIndex = 0
 	}
 
 	title := titleStyle.Render("Create New Node")
 
-	labels := []string{"Name:", "API Endpoint:", "API Key:", "IP Address:"}
+	labels := []string{"Name:", "API Endpoint:", "API Key (auto-generated):"}
 
 	// Render each field
 	var fields string
@@ -175,20 +188,26 @@ func RenderNodeCreate(s *state.AppState) string {
 		value := s.FormFields[i]
 		displayValue := value
 
-		// Show cursor if focused
-		if i == s.CurrentFieldIndex {
+		// Show cursor if focused (but not for API key field)
+		if i == s.CurrentFieldIndex && i < 2 {
 			displayValue = value + "_"
 			label = "> " + label // Show arrow for focused field
 		} else {
 			label = "  " + label
 		}
 
+		// Show API key as read-only
+		if i == 2 {
+			displayValue = lipgloss.NewStyle().Faint(true).Render(value)
+		}
+
 		fields += label + " " + displayValue + "\n"
 	}
 
-	help := helpStyle.Render("\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel")
+	help := helpStyle.Render("\nTab to navigate, Enter to create, Esc to cancel")
+	note := helpStyle.Render("Note: IP address will be determined from API endpoint")
 
-	return title + "\n\n" + fields + help
+	return title + "\n\n" + fields + "\n" + help + "\n" + note
 }
 
 // RenderNodeCreateWithZones renders the node creation form with clickable fields
@@ -198,15 +217,15 @@ func RenderNodeCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		return RenderNodeCreate(s)
 	}
 
-	// Initialize form if needed (4 fields)
-	if len(s.FormFields) != 4 {
-		s.FormFields = []string{"", "", "", ""}
+	// Initialize form if needed (2 editable fields + 1 generated field)
+	if len(s.FormFields) != 3 {
+		s.FormFields = []string{"", "", generateAPIKey()}
 		s.CurrentFieldIndex = 0
 	}
 
 	title := titleStyle.Render("Create New Node")
 
-	labels := []string{"Name:", "API Endpoint:", "API Key:", "IP Address:"}
+	labels := []string{"Name:", "API Endpoint:", "API Key (auto-generated):"}
 
 	// Render each field with zones
 	var fields string
@@ -214,22 +233,32 @@ func RenderNodeCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		value := s.FormFields[i]
 		displayValue := value
 
-		// Show cursor if focused
-		if i == s.CurrentFieldIndex {
+		// Show cursor if focused (but not for API key field)
+		if i == s.CurrentFieldIndex && i < 2 {
 			displayValue = value + "_"
 			label = "> " + label // Show arrow for focused field
 		} else {
 			label = "  " + label
 		}
 
-		// Wrap the entire field line in a clickable zone
+		// Show API key as read-only
+		if i == 2 {
+			displayValue = lipgloss.NewStyle().Faint(true).Render(value)
+		}
+
+		// Wrap the entire field line in a clickable zone (only for editable fields)
 		fieldLine := label + " " + displayValue + "\n"
-		fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
+		if i < 2 {
+			fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
+		} else {
+			fields += fieldLine
+		}
 	}
 
-	help := helpStyle.Render("\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel")
+	help := helpStyle.Render("\nTab to navigate, Enter to create, Esc to cancel")
+	note := helpStyle.Render("Note: IP address will be determined from API endpoint")
 
-	return title + "\n\n" + fields + help
+	return title + "\n\n" + fields + "\n" + help + "\n" + note
 }
 
 // RenderNodeDetails renders detailed information about a node
