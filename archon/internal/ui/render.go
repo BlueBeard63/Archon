@@ -90,6 +90,8 @@ func RenderScreen(s *state.AppState, zm *zone.Manager) string {
 		return screens.RenderNodeCreateWithZones(s, zm)
 	case state.ScreenNodeConfig:
 		return screens.RenderNodeConfig(s)
+	case state.ScreenSettings:
+		return screens.RenderSettingsWithZones(s, zm)
 	case state.ScreenHelp:
 		return screens.RenderHelp()
 	default:

@@ -34,6 +34,7 @@ const (
 	ScreenNodeCreate        Screen = "node_create"
 	ScreenNodeEdit          Screen = "node_edit"
 	ScreenNodeConfig        Screen = "node_config"
+	ScreenSettings          Screen = "settings"
 	ScreenHelp              Screen = "help"
 )
 
@@ -74,9 +75,13 @@ type AppState struct {
 	WindowHeight int `json:"window_height"`
 
 	// Configuration
-	ConfigPath string `json:"config_path"`
-	AutoSave   bool   `json:"auto_save"`
-	ShouldQuit bool   `json:"should_quit"`
+	ConfigPath         string `json:"config_path"`
+	AutoSave           bool   `json:"auto_save"`
+	ShouldQuit         bool   `json:"should_quit"`
+	CloudflareAPIKey   string `json:"cloudflare_api_key"`
+	CloudflareAPIToken string `json:"cloudflare_api_token"`
+	Route53AccessKey   string `json:"route53_access_key"`
+	Route53SecretKey   string `json:"route53_secret_key"`
 }
 
 // AsyncOperation tracks background operations like deployments

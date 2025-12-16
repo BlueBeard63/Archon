@@ -25,7 +25,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state.CurrentScreen == state.ScreenDomainCreate ||
 		m.state.CurrentScreen == state.ScreenDomainEdit ||
 		m.state.CurrentScreen == state.ScreenNodeCreate ||
-		m.state.CurrentScreen == state.ScreenNodeEdit
+		m.state.CurrentScreen == state.ScreenNodeEdit ||
+		m.state.CurrentScreen == state.ScreenSettings
 
 	// Critical global key bindings (work on all screens)
 	switch msg.String() {
@@ -80,6 +81,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNodesListKeys(msg)
 	case state.ScreenNodeCreate:
 		return m.handleNodeCreateKeys(msg)
+	case state.ScreenSettings:
+		return m.handleSettingsKeys(msg)
 	case state.ScreenHelp:
 		return m.handleHelpKeys(msg)
 	}
@@ -98,6 +101,9 @@ func (m Model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "3", "n":
 		m.state.NavigateTo(state.ScreenNodesList)
+		return m, nil
+	case "4", "c":
+		m.state.NavigateTo(state.ScreenSettings)
 		return m, nil
 	}
 
@@ -348,6 +354,54 @@ func (m Model) handleNodeCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		// Submit form
 		return m.handleNodeCreateSubmit()
+	}
+
+	return m, nil
+}
+
+// handleSettingsKeys handles keys on the settings form
+func (m Model) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeySpace:
+		// Add space to current field
+		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+			m.state.FormFields[m.state.CurrentFieldIndex] += " "
+		}
+		return m, nil
+
+	case tea.KeyRunes:
+		// Add character to current field
+		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+			m.state.FormFields[m.state.CurrentFieldIndex] += string(msg.Runes)
+		}
+		return m, nil
+
+	case tea.KeyBackspace:
+		// Remove last character from current field
+		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+			value := m.state.FormFields[m.state.CurrentFieldIndex]
+			if len(value) > 0 {
+				m.state.FormFields[m.state.CurrentFieldIndex] = value[:len(value)-1]
+			}
+		}
+		return m, nil
+
+	case tea.KeyTab:
+		// Move to next field
+		m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % len(m.state.FormFields)
+		return m, nil
+
+	case tea.KeyShiftTab:
+		// Move to previous field
+		m.state.CurrentFieldIndex--
+		if m.state.CurrentFieldIndex < 0 {
+			m.state.CurrentFieldIndex = len(m.state.FormFields) - 1
+		}
+		return m, nil
+
+	case tea.KeyEnter:
+		// Submit form
+		return m.handleSettingsSave()
 	}
 
 	return m, nil
@@ -613,6 +667,28 @@ func (m Model) handleDomainEditSubmit() (tea.Model, tea.Cmd) {
 	m.state.Domains[domainIndex].Name = newDomainName
 
 	m.state.AddNotification("Domain updated: "+oldName+" → "+newDomainName, "success")
+
+	// Auto-save config if enabled
+	if m.state.AutoSave {
+		go func() {
+			_ = m.saveConfigSync()
+		}()
+	}
+
+	m.state.NavigateBack()
+
+	return m, nil
+}
+
+// handleSettingsSave processes settings form submission
+func (m Model) handleSettingsSave() (tea.Model, tea.Cmd) {
+	// Update state with new API keys
+	m.state.CloudflareAPIKey = m.state.FormFields[0]
+	m.state.CloudflareAPIToken = m.state.FormFields[1]
+	m.state.Route53AccessKey = m.state.FormFields[2]
+	m.state.Route53SecretKey = m.state.FormFields[3]
+
+	m.state.AddNotification("Settings saved successfully", "success")
 
 	// Auto-save config if enabled
 	if m.state.AutoSave {

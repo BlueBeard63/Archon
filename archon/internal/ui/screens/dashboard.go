@@ -39,7 +39,7 @@ func RenderDashboard(s *state.AppState) string {
 		rightColumn,
 	)
 
-	help := helpStyle.Render("\nPress 1 or s for Sites • 2 or d for Domains • 3 or n for Nodes • ? for Help • q to Quit")
+	help := helpStyle.Render("\nPress 1 or s for Sites • 2 or d for Domains • 3 or n for Nodes • 4 or c for Settings • ? for Help • q to Quit")
 
 	return title + "\n\n" + columns + "\n" + help
 }
