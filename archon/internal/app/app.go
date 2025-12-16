@@ -237,8 +237,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.state.NodesTable.SetCursor(i)
 					}
 
-					// TODO: Navigate to node edit screen
-					m.state.AddNotification("Edit node: "+node.Name+" (not yet implemented)", "info")
+					// Navigate to node edit screen
+					m.state.SelectedNodeID = node.ID
+					m.state.NavigateTo(state.ScreenNodeEdit)
 					return m, nil
 				}
 				if m.zone.Get(deleteID).InBounds(msg) {

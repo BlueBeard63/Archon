@@ -330,6 +330,85 @@ func RenderNodeCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	return title + "\n\n" + fields + "\n" + help + "\n" + note
 }
 
+// RenderNodeEdit renders the node edit form
+func RenderNodeEdit(s *state.AppState) string {
+	return RenderNodeEditWithZones(s, nil)
+}
+
+// RenderNodeEditWithZones renders the node edit form with clickable fields
+func RenderNodeEditWithZones(s *state.AppState, zm *zone.Manager) string {
+	// Find the node
+	var node *models.Node
+	for i := range s.Nodes {
+		if s.Nodes[i].ID == s.SelectedNodeID {
+			node = &s.Nodes[i]
+			break
+		}
+	}
+
+	if node == nil {
+		return titleStyle.Render("Edit Node") + "\n\n" + "Node not found\n\n" + helpStyle.Render("Press Esc to go back")
+	}
+
+	// Initialize form if needed (3 editable fields: Name, Endpoint, Proxy)
+	if len(s.FormFields) != 3 {
+		s.FormFields = []string{node.Name, node.APIEndpoint, string(node.ProxyType)}
+		s.CurrentFieldIndex = 0
+	}
+
+	title := titleStyle.Render("Edit Node: " + node.Name)
+
+	labels := []string{"Name:", "API Endpoint:", "Reverse Proxy:"}
+
+	// Render each field
+	var fields string
+	for i, label := range labels {
+		value := s.FormFields[i]
+		displayValue := value
+
+		// Show cursor if focused (but not for proxy field)
+		if i == s.CurrentFieldIndex && i < 2 {
+			displayValue = value + "_"
+			label = "> " + label
+		} else if i == s.CurrentFieldIndex && i == 2 {
+			// Proxy field is focused but no cursor (uses dropdown)
+			label = "> " + label
+		} else {
+			label = "  " + label
+		}
+
+		// Wrap the field line in a clickable zone
+		fieldLine := label + " " + displayValue + "\n"
+		if zm != nil {
+			fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
+		} else {
+			fields += fieldLine
+		}
+
+		// Show dropdown options for Proxy field (index 2) when focused
+		if i == s.CurrentFieldIndex && i == 2 && s.DropdownOpen {
+			proxies := []string{"nginx", "apache", "traefik"}
+			dropdownOptions := renderProxyDropdown(proxies, s.DropdownIndex)
+			fields += dropdownOptions + "\n"
+		}
+	}
+
+	helpText := "\nTab/Shift+Tab to navigate, Enter to save, Esc to cancel"
+	if s.CurrentFieldIndex == 2 {
+		// On proxy field
+		if s.DropdownOpen {
+			helpText = "\nUp/Down to select, Enter/Tab to confirm, Esc to cancel"
+		} else {
+			helpText = "\nPress Enter or Down to open proxy dropdown"
+		}
+	}
+
+	help := helpStyle.Render(helpText)
+	note := helpStyle.Render("Note: Changing proxy will require reconfiguring the node")
+
+	return title + "\n\n" + fields + "\n" + help + "\n" + note
+}
+
 // RenderNodeDetails renders detailed information about a node
 func RenderNodeDetails(s *state.AppState, nodeID string) string {
 	title := titleStyle.Render("Node Details")

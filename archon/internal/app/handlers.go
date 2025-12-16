@@ -83,6 +83,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNodesListKeys(msg)
 	case state.ScreenNodeCreate:
 		return m.handleNodeCreateKeys(msg)
+	case state.ScreenNodeEdit:
+		return m.handleNodeEditKeys(msg)
 	case state.ScreenSettings:
 		return m.handleSettingsKeys(msg)
 	case state.ScreenNodeConfig:
@@ -742,6 +744,121 @@ func (m Model) handleNodeCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleNodeEditKeys handles keys on the node edit form
+func (m Model) handleNodeEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Check if we're on proxy field (index 2)
+	isProxyField := m.state.CurrentFieldIndex == 2
+
+	// Handle dropdown-specific keys when dropdown is open
+	if m.state.DropdownOpen && isProxyField {
+		proxies := []string{"nginx", "apache", "traefik"}
+
+		switch msg.Type {
+		case tea.KeyUp:
+			if m.state.DropdownIndex > 0 {
+				m.state.DropdownIndex--
+			}
+			return m, nil
+		case tea.KeyDown:
+			if m.state.DropdownIndex < len(proxies)-1 {
+				m.state.DropdownIndex++
+			}
+			return m, nil
+		case tea.KeyEnter, tea.KeyTab:
+			// Confirm selection
+			m.state.FormFields[2] = proxies[m.state.DropdownIndex]
+			m.state.DropdownOpen = false
+			if msg.Type == tea.KeyTab {
+				// Move to next field (cycle through 0, 1, 2)
+				m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % 3
+			}
+			return m, nil
+		case tea.KeyEsc:
+			// Close dropdown without changing selection
+			m.state.DropdownOpen = false
+			return m, nil
+		}
+		return m, nil
+	}
+
+	// If on proxy field but dropdown not open
+	if isProxyField && !m.state.DropdownOpen {
+		switch msg.Type {
+		case tea.KeyEnter, tea.KeyDown:
+			// Open dropdown
+			m.state.DropdownOpen = true
+			// Set dropdown index based on current selection
+			proxies := []string{"nginx", "apache", "traefik"}
+			for i, p := range proxies {
+				if p == m.state.FormFields[2] {
+					m.state.DropdownIndex = i
+					break
+				}
+			}
+			return m, nil
+		case tea.KeyTab:
+			// Move to next field without opening dropdown
+			m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % 3
+			return m, nil
+		case tea.KeyShiftTab:
+			// Move to previous field
+			m.state.CurrentFieldIndex--
+			if m.state.CurrentFieldIndex < 0 {
+				m.state.CurrentFieldIndex = 2
+			}
+			return m, nil
+		}
+	}
+
+	// Handle regular text input for Name and API Endpoint fields (0, 1)
+	switch msg.Type {
+	case tea.KeySpace:
+		// Add space to current field (only editable text fields - first 2)
+		if m.state.CurrentFieldIndex < 2 {
+			m.state.FormFields[m.state.CurrentFieldIndex] += " "
+		}
+		return m, nil
+
+	case tea.KeyRunes:
+		// Add character to current field (only editable text fields - first 2)
+		if m.state.CurrentFieldIndex < 2 {
+			m.state.FormFields[m.state.CurrentFieldIndex] += string(msg.Runes)
+		}
+		return m, nil
+
+	case tea.KeyBackspace:
+		// Remove last character from current field (only editable text fields - first 2)
+		if m.state.CurrentFieldIndex < 2 {
+			value := m.state.FormFields[m.state.CurrentFieldIndex]
+			if len(value) > 0 {
+				m.state.FormFields[m.state.CurrentFieldIndex] = value[:len(value)-1]
+			}
+		}
+		return m, nil
+
+	case tea.KeyTab:
+		// Move to next field (cycle through editable fields: 0, 1, 2)
+		m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % 3
+		return m, nil
+
+	case tea.KeyShiftTab:
+		// Move to previous field
+		m.state.CurrentFieldIndex--
+		if m.state.CurrentFieldIndex < 0 {
+			m.state.CurrentFieldIndex = 2
+		}
+		return m, nil
+
+	case tea.KeyEnter:
+		// Submit form (only if not on proxy field or dropdown is not open)
+		if !isProxyField {
+			return m.handleNodeEditSubmit()
+		}
+	}
+
+	return m, nil
+}
+
 // handleNodeConfigKeys handles keys on the node config screen (scrollable viewport)
 func (m Model) handleNodeConfigKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -1305,6 +1422,125 @@ func (m Model) handleNodeCreateSubmit() (tea.Model, tea.Cmd) {
 	// Set selected node and navigate to config screen
 	m.state.SelectedNodeID = node.ID
 	m.state.NavigateTo(state.ScreenNodeConfig)
+
+	return m, nil
+}
+
+// handleNodeEditSubmit processes node edit form submission
+func (m Model) handleNodeEditSubmit() (tea.Model, tea.Cmd) {
+	// Validate fields
+	if m.state.FormFields[0] == "" {
+		m.state.AddNotification("Name is required", "error")
+		return m, nil
+	}
+	if m.state.FormFields[1] == "" {
+		m.state.AddNotification("API Endpoint is required", "error")
+		return m, nil
+	}
+
+	// Find the node being edited
+	var nodeIndex = -1
+	for i := range m.state.Nodes {
+		if m.state.Nodes[i].ID == m.state.SelectedNodeID {
+			nodeIndex = i
+			break
+		}
+	}
+
+	if nodeIndex == -1 {
+		m.state.AddNotification("Node not found", "error")
+		m.state.NavigateBack()
+		return m, nil
+	}
+
+	oldName := m.state.Nodes[nodeIndex].Name
+	oldEndpoint := m.state.Nodes[nodeIndex].APIEndpoint
+	oldProxyType := string(m.state.Nodes[nodeIndex].ProxyType)
+
+	// Check for duplicate name (excluding current node)
+	for i, node := range m.state.Nodes {
+		if i != nodeIndex && node.Name == m.state.FormFields[0] {
+			m.state.AddNotification("Node already exists: "+m.state.FormFields[0], "error")
+			return m, nil
+		}
+	}
+
+	// Update node fields
+	m.state.Nodes[nodeIndex].Name = m.state.FormFields[0]
+	m.state.Nodes[nodeIndex].APIEndpoint = m.state.FormFields[1]
+
+	// Parse and update proxy type
+	proxyTypeStr := m.state.FormFields[2]
+	var proxyType models.ProxyType
+	switch proxyTypeStr {
+	case "nginx":
+		proxyType = models.ProxyTypeNginx
+	case "apache":
+		proxyType = models.ProxyTypeApache
+	case "traefik":
+		proxyType = models.ProxyTypeTraefik
+	default:
+		proxyType = models.ProxyTypeNginx
+	}
+	m.state.Nodes[nodeIndex].ProxyType = proxyType
+
+	// Try to extract IP from API endpoint
+	endpoint := m.state.FormFields[1]
+	var ip net.IP
+	if strings.Contains(endpoint, "://") {
+		parts := strings.Split(endpoint, "://")
+		if len(parts) > 1 {
+			host := strings.Split(parts[1], ":")[0]
+			ip = net.ParseIP(host)
+		}
+	} else {
+		ip = net.ParseIP(endpoint)
+	}
+	if ip != nil {
+		m.state.Nodes[nodeIndex].IPAddress = ip
+	}
+
+	// Build notification message
+	var changes []string
+	if oldName != m.state.FormFields[0] {
+		changes = append(changes, fmt.Sprintf("name: %s → %s", oldName, m.state.FormFields[0]))
+	}
+	if oldEndpoint != m.state.FormFields[1] {
+		changes = append(changes, fmt.Sprintf("endpoint: %s → %s", oldEndpoint, m.state.FormFields[1]))
+	}
+	if oldProxyType != proxyTypeStr {
+		proxyLabels := map[string]string{
+			"nginx":   "Nginx",
+			"apache":  "Apache2",
+			"traefik": "Traefik",
+		}
+		oldLabel := proxyLabels[oldProxyType]
+		if oldLabel == "" {
+			oldLabel = oldProxyType
+		}
+		newLabel := proxyLabels[proxyTypeStr]
+		if newLabel == "" {
+			newLabel = proxyTypeStr
+		}
+		changes = append(changes, fmt.Sprintf("proxy: %s → %s", oldLabel, newLabel))
+	}
+
+	var message string
+	if len(changes) > 0 {
+		message = "Node updated: " + strings.Join(changes, ", ")
+	} else {
+		message = "Node updated (no changes)"
+	}
+	m.state.AddNotification(message, "success")
+
+	// Auto-save config if enabled
+	if m.state.AutoSave {
+		go func() {
+			_ = m.saveConfigSync()
+		}()
+	}
+
+	m.state.NavigateBack()
 
 	return m, nil
 }
