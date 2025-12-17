@@ -236,6 +236,30 @@ func (m Model) handleSitesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.handleDeleteSite(site.ID)
 		}
 		return m, nil
+
+	case "s":
+		// Toggle start/stop for selected site
+		if len(m.state.Sites) > 0 && m.state.SitesListIndex >= 0 && m.state.SitesListIndex < len(m.state.Sites) {
+			site := m.state.Sites[m.state.SitesListIndex]
+
+			// If running or deploying, stop it
+			if site.Status == models.SiteStatusRunning || site.Status == models.SiteStatusDeploying {
+				m.state.AddNotification("Stopping site: "+site.Name, "info")
+				return m, m.spawnStopSite(site.ID)
+			}
+
+			// If stopped or failed, restart it
+			if site.Status == models.SiteStatusStopped || site.Status == models.SiteStatusFailed {
+				m.state.AddNotification("Restarting site: "+site.Name, "info")
+				return m, m.spawnRestartSite(site.ID)
+			}
+
+			// If inactive, do nothing (user should press space/enter to deploy)
+			if site.Status == models.SiteStatusInactive || site.Status == "" {
+				m.state.AddNotification("Site is inactive. Press Space/Enter to deploy", "info")
+			}
+		}
+		return m, nil
 	}
 
 	return m, nil

@@ -78,12 +78,18 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 				portDisplay = fmt.Sprintf("%d+", mappings[0].Port)
 			}
 
+			// Ensure status has a valid value
+			statusDisplay := string(site.Status)
+			if statusDisplay == "" {
+				statusDisplay = "inactive"
+			}
+
 			rows = append(rows, table.Row{
 				truncate(site.Name, 25),
 				truncate(domainDisplay, 18),
 				truncate(nodeName, 25),
-				portDisplay,
-				string(site.Status),
+				truncate(portDisplay, 6),
+				truncate(statusDisplay, 10),
 			})
 		}
 
@@ -111,13 +117,53 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		actionsColumn.WriteString("\n\n") // Header padding
 
 		for _, site := range s.Sites {
-			deployBtn := components.Button{
-				ID:      "deploy-site-" + site.ID.String(),
-				Label:   "🚀",
-				Primary: false,
-				Border:  false,
-				Icon:    true,
+			var buttons []string
+
+			// Only show deploy button for inactive sites
+			if site.Status == models.SiteStatusInactive || site.Status == "" {
+				deployBtn := components.Button{
+					ID:      "deploy-site-" + site.ID.String(),
+					Label:   "🚀",
+					Primary: false,
+					Border:  false,
+					Icon:    true,
+				}
+				if zm != nil {
+					buttons = append(buttons, deployBtn.RenderWithZone(zm))
+				} else {
+					buttons = append(buttons, deployBtn.Render())
+				}
 			}
+
+			// Show stop button for running sites, play button for stopped/failed sites
+			var controlBtn components.Button
+			if site.Status == models.SiteStatusRunning || site.Status == models.SiteStatusDeploying {
+				controlBtn = components.Button{
+					ID:      "stop-site-" + site.ID.String(),
+					Label:   "⏹️",
+					Primary: false,
+					Border:  false,
+					Icon:    true,
+				}
+			} else if site.Status == models.SiteStatusStopped || site.Status == models.SiteStatusFailed {
+				controlBtn = components.Button{
+					ID:      "restart-site-" + site.ID.String(),
+					Label:   "▶️",
+					Primary: false,
+					Border:  false,
+					Icon:    true,
+				}
+			}
+
+			// Add control button if status is not inactive
+			if site.Status != models.SiteStatusInactive && site.Status != "" {
+				if zm != nil {
+					buttons = append(buttons, controlBtn.RenderWithZone(zm))
+				} else {
+					buttons = append(buttons, controlBtn.Render())
+				}
+			}
+
 			editBtn := components.Button{
 				ID:      "edit-site-" + site.ID.String(),
 				Label:   "✏️",
@@ -133,13 +179,15 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 				Icon:    true,
 			}
 
-			var actionLine string
 			if zm != nil {
-				actionLine = deployBtn.RenderWithZone(zm) + " " + editBtn.RenderWithZone(zm) + " " + deleteBtn.RenderWithZone(zm)
+				buttons = append(buttons, editBtn.RenderWithZone(zm))
+				buttons = append(buttons, deleteBtn.RenderWithZone(zm))
 			} else {
-				actionLine = deployBtn.Render() + " " + editBtn.Render() + " " + deleteBtn.Render()
+				buttons = append(buttons, editBtn.Render())
+				buttons = append(buttons, deleteBtn.Render())
 			}
 
+			actionLine := strings.Join(buttons, " ")
 			actionsColumn.WriteString(actionLine + "\n")
 		}
 
@@ -170,7 +218,7 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 	}
 
-	help := helpStyle.Render("\n\nPress j/k or arrows to navigate • Space/Enter to deploy • e to edit • d to delete • n to create • Esc to go back")
+	help := helpStyle.Render("\n\nPress j/k or arrows to navigate • Space/Enter to deploy • s to start/stop • e to edit • d to delete • n to create • Esc to go back")
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,

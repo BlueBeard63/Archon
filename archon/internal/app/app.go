@@ -157,10 +157,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			// Check for row action buttons (deploy/edit/delete/view)
+			// Check for row action buttons (deploy/stop/restart/edit/delete/view)
 			// Sites
 			for i, site := range m.state.Sites {
 				deployID := "button:deploy-site-" + site.ID.String()
+				stopID := "button:stop-site-" + site.ID.String()
+				restartID := "button:restart-site-" + site.ID.String()
 				editID := "button:edit-site-" + site.ID.String()
 				deleteID := "button:delete-site-" + site.ID.String()
 
@@ -173,6 +175,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 					// Deploy site
 					return m, m.spawnDeploySite(site.ID)
+				}
+				if m.zone.Get(stopID).InBounds(msg) {
+					// Sync table cursor
+					m.state.SitesListIndex = i
+					if m.state.SitesTable != nil {
+						m.state.SitesTable.SetCursor(i)
+					}
+
+					// Stop site
+					return m, m.spawnStopSite(site.ID)
+				}
+				if m.zone.Get(restartID).InBounds(msg) {
+					// Sync table cursor
+					m.state.SitesListIndex = i
+					if m.state.SitesTable != nil {
+						m.state.SitesTable.SetCursor(i)
+					}
+
+					// Restart site
+					return m, m.spawnRestartSite(site.ID)
 				}
 				if m.zone.Get(editID).InBounds(msg) {
 					// Sync table cursor
@@ -364,15 +386,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case DeploySiteMsg:
+		// Update status to deploying
+		site := m.state.GetSiteByID(msg.SiteID)
+		if site != nil {
+			site.Status = models.SiteStatusDeploying
+		}
 		// Spawn async deployment operation
 		return m, m.spawnDeploySite(msg.SiteID)
 
 	case SiteDeployedMsg:
-		// Update site status based on result
-		if msg.Error != nil {
-			m.state.AddNotification("Deployment failed: "+msg.Error.Error(), "error")
-		} else {
-			m.state.AddNotification("Site deployed successfully", "success")
+		// Update site status in state
+		site := m.state.GetSiteByID(msg.SiteID)
+		if site != nil {
+			if msg.Error != nil {
+				site.Status = models.SiteStatusFailed
+				m.state.AddNotification("Deployment failed: "+msg.Error.Error(), "error")
+			} else {
+				site.Status = models.SiteStatusRunning
+				m.state.AddNotification("Site deployed successfully", "success")
+			}
+			// Trigger auto-save if enabled
+			if m.state.AutoSave {
+				return m, m.saveConfig()
+			}
+		}
+		return m, nil
+
+	case SiteOperationResultMsg:
+		// Handle stop/restart operation results
+		site := m.state.GetSiteByID(msg.SiteID)
+		if site != nil {
+			if msg.Error != nil {
+				m.state.AddNotification(fmt.Sprintf("Failed to %s site: %s", msg.Operation, msg.Error.Error()), "error")
+			} else {
+				// Update status based on operation
+				switch msg.Operation {
+				case "stop":
+					site.Status = models.SiteStatusStopped
+					m.state.AddNotification("Site stopped successfully", "success")
+				case "restart":
+					site.Status = models.SiteStatusRunning
+					m.state.AddNotification("Site restarted successfully", "success")
+				default:
+					m.state.AddNotification(fmt.Sprintf("Site %s successful", msg.Operation), "success")
+				}
+				// Trigger auto-save if enabled
+				if m.state.AutoSave {
+					return m, m.saveConfig()
+				}
+			}
 		}
 		return m, nil
 
@@ -627,6 +689,80 @@ func (m Model) spawnDeploySite(siteID uuid.UUID) tea.Cmd {
 		return SiteDeployedMsg{
 			SiteID: siteID,
 			Error:  err,
+		}
+	}
+}
+
+func (m Model) spawnStopSite(siteID uuid.UUID) tea.Cmd {
+	return func() tea.Msg {
+		// Get site from state by ID
+		site := m.state.GetSiteByID(siteID)
+		if site == nil {
+			return SiteOperationResultMsg{
+				SiteID:    siteID,
+				Operation: "stop",
+				Error:     fmt.Errorf("site not found"),
+			}
+		}
+
+		// Get node from state by site.NodeID
+		node := m.state.GetNodeByID(site.NodeID)
+		if node == nil {
+			return SiteOperationResultMsg{
+				SiteID:    siteID,
+				Operation: "stop",
+				Error:     fmt.Errorf("node not found"),
+			}
+		}
+
+		// Call nodeClient.StopSite()
+		err := m.nodeClient.StopSite(
+			node.APIEndpoint,
+			node.APIKey,
+			siteID,
+		)
+
+		return SiteOperationResultMsg{
+			SiteID:    siteID,
+			Operation: "stop",
+			Error:     err,
+		}
+	}
+}
+
+func (m Model) spawnRestartSite(siteID uuid.UUID) tea.Cmd {
+	return func() tea.Msg {
+		// Get site from state by ID
+		site := m.state.GetSiteByID(siteID)
+		if site == nil {
+			return SiteOperationResultMsg{
+				SiteID:    siteID,
+				Operation: "restart",
+				Error:     fmt.Errorf("site not found"),
+			}
+		}
+
+		// Get node from state by site.NodeID
+		node := m.state.GetNodeByID(site.NodeID)
+		if node == nil {
+			return SiteOperationResultMsg{
+				SiteID:    siteID,
+				Operation: "restart",
+				Error:     fmt.Errorf("node not found"),
+			}
+		}
+
+		// Call nodeClient.RestartSite()
+		err := m.nodeClient.RestartSite(
+			node.APIEndpoint,
+			node.APIKey,
+			siteID,
+		)
+
+		return SiteOperationResultMsg{
+			SiteID:    siteID,
+			Operation: "restart",
+			Error:     err,
 		}
 	}
 }
