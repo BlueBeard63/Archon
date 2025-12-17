@@ -390,6 +390,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		site := m.state.GetSiteByID(msg.SiteID)
 		if site != nil {
 			site.Status = models.SiteStatusDeploying
+			site.UpdatedAt = time.Now()
 		}
 		// Spawn async deployment operation
 		return m, m.spawnDeploySite(msg.SiteID)
@@ -405,6 +406,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				site.Status = models.SiteStatusRunning
 				m.state.AddNotification("Site deployed successfully", "success")
 			}
+			site.UpdatedAt = time.Now()
 			// Trigger auto-save if enabled
 			if m.state.AutoSave {
 				return m, m.saveConfig()
@@ -430,6 +432,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				default:
 					m.state.AddNotification(fmt.Sprintf("Site %s successful", msg.Operation), "success")
 				}
+				site.UpdatedAt = time.Now()
 				// Trigger auto-save if enabled
 				if m.state.AutoSave {
 					return m, m.saveConfig()
