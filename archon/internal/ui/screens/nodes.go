@@ -51,7 +51,7 @@ func RenderNodesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		for _, node := range s.Nodes {
 			rows = append(rows, table.Row{
 				truncateNode(node.Name, 20),
-				node.IPAddress.String(),
+				truncateNode(node.IPAddress.String(), 20),
 				truncateNode(node.APIEndpoint, 28),
 				string(node.Status),
 			})
@@ -61,7 +61,7 @@ func RenderNodesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		if s.NodesTable == nil {
 			columns := []table.Column{
 				{Title: "Name", Width: 20},
-				{Title: "IP Address", Width: 15},
+				{Title: "IP Address", Width: 20},
 				{Title: "API Endpoint", Width: 28},
 				{Title: "Status", Width: 10},
 			}
