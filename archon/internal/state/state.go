@@ -89,7 +89,7 @@ type AppState struct {
 	ConfigPath         string `json:"config_path"`
 	AutoSave           bool   `json:"auto_save"`
 	ShouldQuit         bool   `json:"should_quit"`
-	CloudflareAPIKey   string `json:"cloudflare_api_key"`
+	CloudflareZoneID   string `json:"cloudflare_zone_id"`
 	CloudflareAPIToken string `json:"cloudflare_api_token"`
 	Route53AccessKey   string `json:"route53_access_key"`
 	Route53SecretKey   string `json:"route53_secret_key"`

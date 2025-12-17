@@ -47,6 +47,13 @@ type SiteDeployedMsg struct {
 	Error  error
 }
 
+// SiteDeployProgressMsg is sent during deployment with progress updates
+type SiteDeployProgressMsg struct {
+	SiteID  uuid.UUID
+	Message string
+	Step    string // "init", "ssl", "docker", "proxy", "complete"
+}
+
 // StopSiteMsg stops a running site
 type StopSiteMsg struct {
 	SiteID uuid.UUID

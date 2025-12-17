@@ -10,6 +10,8 @@ import (
 
 	"github.com/BlueBeard63/archon/internal/api"
 	"github.com/BlueBeard63/archon/internal/config"
+	"github.com/BlueBeard63/archon/internal/dns"
+	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/BlueBeard63/archon/internal/state"
 	"github.com/BlueBeard63/archon/internal/ui"
 )
@@ -44,7 +46,7 @@ func NewModel(configPath string) (*Model, error) {
 	appState.Nodes = cfg.Nodes
 	appState.ConfigPath = configPath
 	appState.AutoSave = cfg.Settings.AutoSave
-	appState.CloudflareAPIKey = cfg.Settings.CloudflareAPIKey
+	appState.CloudflareZoneID = cfg.Settings.CloudflareZoneID
 	appState.CloudflareAPIToken = cfg.Settings.CloudflareAPIToken
 	appState.Route53AccessKey = cfg.Settings.Route53AccessKey
 	appState.Route53SecretKey = cfg.Settings.Route53SecretKey
@@ -503,12 +505,123 @@ func (m Model) spawnDeploySite(siteID uuid.UUID) tea.Cmd {
 			}
 		}
 
-		// Call nodeClient.DeploySite()
-		err := m.nodeClient.DeploySite(
+		// Get subdomain from first domain mapping
+		var subdomain string
+		mappings := site.GetDomainMappings()
+		if len(mappings) > 0 {
+			subdomain = mappings[0].Subdomain
+		}
+
+		// Build full domain name (subdomain.domain or just domain)
+		fullDomain := models.GetFullDomain(domain.Name, subdomain)
+
+		// Create or update DNS record if provider is not manual
+		if domain.DnsProvider.Type != models.DnsProviderManual {
+			// Use domain's provider config, but fall back to global settings if empty
+			providerConfig := domain.DnsProvider
+
+			// For Cloudflare: use global settings as fallback if domain config is empty
+			if providerConfig.Type == models.DnsProviderCloudflare {
+				if providerConfig.ZoneID == "" {
+					providerConfig.ZoneID = m.state.CloudflareZoneID
+				}
+				if providerConfig.APIToken == "" {
+					providerConfig.APIToken = m.state.CloudflareAPIToken
+				}
+			}
+
+			// For Route53: use global settings as fallback if domain config is empty
+			if providerConfig.Type == models.DnsProviderRoute53 {
+				if providerConfig.AccessKey == "" {
+					providerConfig.AccessKey = m.state.Route53AccessKey
+				}
+				if providerConfig.SecretKey == "" {
+					providerConfig.SecretKey = m.state.Route53SecretKey
+				}
+			}
+
+			dnsProvider, err := dns.CreateProvider(&providerConfig)
+			if err != nil {
+				return SiteDeployedMsg{
+					SiteID: siteID,
+					Error:  fmt.Errorf("failed to create DNS provider: %w", err),
+				}
+			}
+
+			if dnsProvider != nil {
+				// List existing DNS records to check if one already exists
+				existingRecords, err := dnsProvider.ListRecords(domain.Name)
+				if err != nil {
+					// If we can't list records, try to create anyway
+					return SiteDeployedMsg{
+						SiteID: siteID,
+						Error:  fmt.Errorf("failed to list DNS records: %w", err),
+					}
+				}
+
+				// Check if a record with the same name exists
+				var existingRecord *models.DnsRecord
+				for i := range existingRecords {
+					if existingRecords[i].Name == fullDomain && existingRecords[i].RecordType == models.DnsRecordTypeA {
+						existingRecord = &existingRecords[i]
+						break
+					}
+				}
+
+				targetIP := node.IPAddress.String()
+
+				if existingRecord != nil {
+					// Record exists - check if it points to the correct IP
+					if existingRecord.Value == targetIP {
+						// Record is already correct - continue with deployment
+						// No action needed
+					} else {
+						// Record points to wrong IP - update it
+						existingRecord.Value = targetIP
+						_, err = dnsProvider.UpdateRecord(domain.Name, existingRecord)
+						if err != nil {
+							return SiteDeployedMsg{
+								SiteID: siteID,
+								Error:  fmt.Errorf("failed to update DNS record for %s from %s to %s: %w", fullDomain, existingRecord.Value, targetIP, err),
+							}
+						}
+					}
+				} else {
+					// Record doesn't exist - create it
+					record := models.NewDnsRecord(
+						models.DnsRecordTypeA,
+						fullDomain,
+						targetIP,
+						300, // 5 minute TTL
+					)
+
+					_, err = dnsProvider.CreateRecord(domain.Name, record)
+					if err != nil {
+						return SiteDeployedMsg{
+							SiteID: siteID,
+							Error:  fmt.Errorf("failed to create DNS record for %s: %w", fullDomain, err),
+						}
+					}
+				}
+			}
+		}
+
+		// Use type assertion to access DeploySiteWebSocket method
+		httpClient, ok := m.nodeClient.(*api.HTTPNodeClient)
+		if !ok {
+			return SiteDeployedMsg{
+				SiteID: siteID,
+				Error:  fmt.Errorf("node client does not support WebSocket"),
+			}
+		}
+
+		// Deploy using WebSocket with progress callback
+		err := httpClient.DeploySiteWebSocket(
 			node.APIEndpoint,
 			node.APIKey,
 			site,
-			domain.Name,
+			fullDomain,
+			nil, // No progress callback for now - just use WebSocket for timeout prevention
 		)
 
 		return SiteDeployedMsg{

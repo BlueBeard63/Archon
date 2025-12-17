@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"github.com/BlueBeard63/archon/internal/models"
 )
 
@@ -30,6 +33,17 @@ func NewHTTPNodeClient() *HTTPNodeClient {
 		},
 	}
 }
+
+// DeploymentMessage represents a message sent during WebSocket deployment
+type DeploymentMessage struct {
+	Type    string `json:"type"`    // "progress", "success", "error"
+	Message string `json:"message"` // Human-readable message
+	Step    string `json:"step"`    // Current step (e.g., "ssl", "docker", "proxy")
+	Error   string `json:"error,omitempty"`
+}
+
+// DeploymentProgressCallback is called for each progress update during deployment
+type DeploymentProgressCallback func(msg DeploymentMessage)
 
 // DeploySite sends a deployment request to a node
 func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, domainName string) error {
@@ -70,6 +84,120 @@ func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, 
 	}
 
 	return nil
+}
+
+// DeploySiteWebSocket sends a deployment request via WebSocket with progress updates
+func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *models.Site, domainName string, progressCallback DeploymentProgressCallback) error {
+	// Convert HTTP/HTTPS endpoint to WebSocket URL
+	wsURL, err := convertToWebSocketURL(endpoint, "/api/v1/sites/deploy/ws")
+	if err != nil {
+		return fmt.Errorf("failed to convert to WebSocket URL: %w", err)
+	}
+
+	// Establish WebSocket connection with Authorization header
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	// Set Authorization header
+	headers := http.Header{}
+	if apiKey != "" {
+		headers.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	conn, _, err := dialer.Dial(wsURL, headers)
+	if err != nil {
+		return fmt.Errorf("failed to connect to WebSocket: %w", err)
+	}
+	defer conn.Close()
+
+	// Build deploy request
+	req := struct {
+		ID              uuid.UUID         `json:"id"`
+		Name            string            `json:"name"`
+		Domain          string            `json:"domain"`
+		DockerImage     string            `json:"docker_image"`
+		EnvironmentVars map[string]string `json:"environment_vars"`
+		Port            int               `json:"port"`
+		SSLEnabled      bool              `json:"ssl_enabled"`
+		SSLEmail        string            `json:"ssl_email,omitempty"`
+		ConfigFiles     []models.ConfigFile `json:"config_files"`
+		TraefikLabels   map[string]string `json:"traefik_labels,omitempty"`
+	}{
+		ID:              site.ID,
+		Name:            site.Name,
+		Domain:          domainName,
+		DockerImage:     site.DockerImage,
+		EnvironmentVars: site.EnvironmentVars,
+		Port:            site.Port,
+		SSLEnabled:      site.SSLEnabled,
+		SSLEmail:        site.SSLEmail,
+		ConfigFiles:     site.ConfigFiles,
+		TraefikLabels:   site.GenerateTraefikLabels(domainName),
+	}
+
+	// Send deployment request as first message
+	if err := conn.WriteJSON(req); err != nil {
+		return fmt.Errorf("failed to send deployment request: %w", err)
+	}
+
+	// Listen for progress messages
+	for {
+		var msg DeploymentMessage
+		if err := conn.ReadJSON(&msg); err != nil {
+			// Connection closed or error reading
+			return fmt.Errorf("WebSocket read error: %w", err)
+		}
+
+		// Call progress callback if provided
+		if progressCallback != nil {
+			progressCallback(msg)
+		}
+
+		// Handle message types
+		switch msg.Type {
+		case "success":
+			// Deployment completed successfully
+			return nil
+		case "error":
+			// Deployment failed
+			if msg.Error != "" {
+				return fmt.Errorf("deployment failed: %s", msg.Error)
+			}
+			return fmt.Errorf("deployment failed: %s", msg.Message)
+		case "progress":
+			// Continue listening for more messages
+			continue
+		default:
+			// Unknown message type, log and continue
+			continue
+		}
+	}
+}
+
+// convertToWebSocketURL converts an HTTP/HTTPS endpoint to WebSocket URL
+func convertToWebSocketURL(endpoint, path string) (string, error) {
+	// Parse the endpoint URL
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("invalid endpoint URL: %w", err)
+	}
+
+	// Convert scheme to WebSocket
+	switch u.Scheme {
+	case "http":
+		u.Scheme = "ws"
+	case "https":
+		u.Scheme = "wss"
+	default:
+		// Assume http if no scheme
+		u.Scheme = "ws"
+	}
+
+	// Set the path
+	u.Path = strings.TrimSuffix(u.Path, "/") + path
+
+	return u.String(), nil
 }
 
 // DeleteSite removes a deployed site from a node

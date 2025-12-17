@@ -19,7 +19,7 @@ func RenderSettingsWithZones(s *state.AppState, zm *zone.Manager) string {
 	// Initialize form if needed (4 fields for API keys)
 	if len(s.FormFields) != 4 {
 		s.FormFields = []string{
-			s.CloudflareAPIKey,
+			s.CloudflareZoneID,
 			s.CloudflareAPIToken,
 			s.Route53AccessKey,
 			s.Route53SecretKey,
@@ -30,15 +30,15 @@ func RenderSettingsWithZones(s *state.AppState, zm *zone.Manager) string {
 	title := titleStyle.Render("⚙️  Settings")
 
 	labels := []string{
-		"Cloudflare API Key:",
+		"Cloudflare Zone ID:",
 		"Cloudflare API Token:",
 		"Route53 Access Key:",
 		"Route53 Secret Key:",
 	}
 
 	helpTexts := []string{
-		"For Cloudflare DNS management",
-		"Alternative to API Key (newer)",
+		"Cloudflare Zone ID (found in domain overview)",
+		"Cloudflare API Token (with DNS edit permissions)",
 		"AWS access key for Route53",
 		"AWS secret key for Route53",
 	}

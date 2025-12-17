@@ -119,8 +119,10 @@ func (n *NginxManager) Configure(ctx context.Context, site *models.DeployRequest
 
 	// Test nginx configuration
 	cmd := exec.CommandContext(ctx, "nginx", "-t")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("nginx config test failed: %s", string(output))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Log the actual error for debugging
+		return fmt.Errorf("nginx config test failed (exit code: %v): %s", err, string(output))
 	}
 
 	return nil
@@ -137,7 +139,14 @@ func (n *NginxManager) Remove(ctx context.Context, siteID uuid.UUID, domain stri
 }
 
 func (n *NginxManager) Reload(ctx context.Context) error {
-	// Execute reload command
+	// Test nginx configuration before reloading
+	testCmd := exec.CommandContext(ctx, "nginx", "-t")
+	testOutput, err := testCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("nginx config test failed before reload (exit code: %v): %s", err, string(testOutput))
+	}
+
+	// Execute reload command only if test passed
 	cmd := exec.CommandContext(ctx, "sh", "-c", n.reloadCommand)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("nginx reload failed: %s", string(output))

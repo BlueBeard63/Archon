@@ -62,6 +62,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 
 		// Site management
 		r.Post("/api/v1/sites/deploy", handlers.HandleDeploySite)
+		r.Get("/api/v1/sites/deploy/ws", handlers.HandleDeploySiteWebSocket) // WebSocket endpoint
 		r.Get("/api/v1/sites/{siteID}/status", handlers.HandleGetSiteStatus)
 		r.Post("/api/v1/sites/{siteID}/stop", handlers.HandleStopSite)
 		r.Post("/api/v1/sites/{siteID}/restart", handlers.HandleRestartSite)

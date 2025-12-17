@@ -110,6 +110,7 @@ func (m *Manager) handleLetsEncrypt(ctx context.Context, domain string, email st
 			"--nginx",
 			"--non-interactive",
 			"--agree-tos",
+			"--force-renewal",
 			"--email", email,
 			"-d", domain,
 		)
@@ -120,6 +121,7 @@ func (m *Manager) handleLetsEncrypt(ctx context.Context, domain string, email st
 			"--apache",
 			"--non-interactive",
 			"--agree-tos",
+			"--force-renewal",
 			"--email", email,
 			"-d", domain,
 		)
@@ -133,6 +135,7 @@ func (m *Manager) handleLetsEncrypt(ctx context.Context, domain string, email st
 			"--standalone",
 			"--non-interactive",
 			"--agree-tos",
+			"--force-renewal",
 			"--email", email,
 			"-d", domain,
 			"--http-01-port", "80",

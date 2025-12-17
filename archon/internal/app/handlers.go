@@ -1918,7 +1918,7 @@ func (m Model) handleDomainEditSubmit() (tea.Model, tea.Cmd) {
 // handleSettingsSave processes settings form submission
 func (m Model) handleSettingsSave() (tea.Model, tea.Cmd) {
 	// Update state with new API keys
-	m.state.CloudflareAPIKey = m.state.FormFields[0]
+	m.state.CloudflareZoneID = m.state.FormFields[0]
 	m.state.CloudflareAPIToken = m.state.FormFields[1]
 	m.state.Route53AccessKey = m.state.FormFields[2]
 	m.state.Route53SecretKey = m.state.FormFields[3]
@@ -2207,7 +2207,7 @@ func (m Model) saveConfigSync() error {
 			HealthCheckIntervalSecs: 60,
 			DefaultDnsTTL:           3600,
 			Theme:                   "default",
-			CloudflareAPIKey:        m.state.CloudflareAPIKey,
+			CloudflareZoneID:        m.state.CloudflareZoneID,
 			CloudflareAPIToken:      m.state.CloudflareAPIToken,
 			Route53AccessKey:        m.state.Route53AccessKey,
 			Route53SecretKey:        m.state.Route53SecretKey,

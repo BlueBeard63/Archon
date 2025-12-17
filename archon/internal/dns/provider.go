@@ -3,6 +3,7 @@ package dns
 import (
 	"fmt"
 
+	"github.com/BlueBeard63/archon/internal/dns/cloudflare"
 	"github.com/BlueBeard63/archon/internal/models"
 )
 
@@ -27,9 +28,10 @@ type Provider interface {
 func CreateProvider(provider *models.DnsProvider) (Provider, error) {
 	switch provider.Type {
 	case models.DnsProviderCloudflare:
-		// TODO: Import and return cloudflare.NewCloudflareProvider()
-		// return cloudflare.NewCloudflareProvider(provider.APIToken, provider.ZoneID), nil
-		return nil, fmt.Errorf("Cloudflare provider not yet implemented")
+		if provider.APIToken == "" || provider.ZoneID == "" {
+			return nil, fmt.Errorf("Cloudflare provider requires APIToken and ZoneID")
+		}
+		return cloudflare.NewCloudflareProvider(provider.APIToken, provider.ZoneID), nil
 
 	case models.DnsProviderRoute53:
 		// TODO: Implement Route53 provider in future

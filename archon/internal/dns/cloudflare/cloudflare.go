@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -33,36 +32,48 @@ func NewCloudflareProvider(apiToken, zoneID string) *Provider {
 
 // ListRecords retrieves all DNS records for a zone
 func (p *Provider) ListRecords(domain string) ([]models.DnsRecord, error) {
-	// TODO: Implement Cloudflare DNS record listing
-	// Steps:
-	// 1. Build request: GET {cloudflareAPIBase}/zones/{zoneID}/dns_records
-	// 2. Set Authorization: Bearer {apiToken} header
-	// 3. Parse response JSON
-	// 4. Convert Cloudflare response format to []models.DnsRecord
-	// 5. Handle pagination if necessary (Cloudflare uses page/per_page)
+	url := fmt.Sprintf("%s/zones/%s/dns_records", cloudflareAPIBase, p.zoneID)
 
-	// Example structure:
-	// url := fmt.Sprintf("%s/zones/%s/dns_records", cloudflareAPIBase, p.zoneID)
-	// req, err := http.NewRequest("GET", url, nil)
-	// req.Header.Set("Authorization", "Bearer "+p.apiToken)
-	// req.Header.Set("Content-Type", "application/json")
-	// ...
-	// Parse Cloudflare response format:
-	// {
-	//   "result": [
-	//     {
-	//       "id": "...",
-	//       "type": "A",
-	//       "name": "example.com",
-	//       "content": "192.0.2.1",
-	//       "ttl": 300,
-	//       "proxied": false
-	//     }
-	//   ],
-	//   "success": true
-	// }
+	// Create HTTP request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
 
-	return nil, nil
+	req.Header.Set("Authorization", "Bearer "+p.apiToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	// Make request
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Parse response
+	var cfResp struct {
+		Success bool              `json:"success"`
+		Errors  []cloudflareError `json:"errors"`
+		Result  []cloudflareRecord `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&cfResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if !cfResp.Success {
+		if len(cfResp.Errors) > 0 {
+			return nil, fmt.Errorf("cloudflare API error: %s", cfResp.Errors[0].Message)
+		}
+		return nil, fmt.Errorf("cloudflare API request failed")
+	}
+
+	// Convert to models.DnsRecord
+	records := make([]models.DnsRecord, 0, len(cfResp.Result))
+	for _, cfRecord := range cfResp.Result {
+		records = append(records, fromCloudflareRecord(cfRecord))
+	}
+
+	return records, nil
 }
 
 // CreateRecord creates a new DNS record in Cloudflare
@@ -78,19 +89,14 @@ func (p *Provider) CreateRecord(domain string, record *models.DnsRecord) (*model
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Create HTTP request
-	req, err := http.NewRequest("POST", url, nil)
+	// Create HTTP request with body
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+p.apiToken)
 	req.Header.Set("Content-Type", "application/json")
-	req.Body = http.NoBody
-	req.GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(body)), nil
-	}
-	req.ContentLength = int64(len(body))
 
 	// Make request
 	resp, err := p.client.Do(req)
@@ -125,24 +131,96 @@ func (p *Provider) CreateRecord(domain string, record *models.DnsRecord) (*model
 
 // UpdateRecord updates an existing DNS record
 func (p *Provider) UpdateRecord(domain string, record *models.DnsRecord) (*models.DnsRecord, error) {
-	// TODO: Implement DNS record update
-	// PUT {cloudflareAPIBase}/zones/{zoneID}/dns_records/{recordID}
-	// record.ID must be set to the Cloudflare record ID
-
 	if record.ID == nil || *record.ID == "" {
 		return nil, fmt.Errorf("record ID is required for updates")
 	}
 
-	return nil, nil
+	url := fmt.Sprintf("%s/zones/%s/dns_records/%s", cloudflareAPIBase, p.zoneID, *record.ID)
+
+	// Convert to Cloudflare format
+	cfRecord := toCloudflareRecord(record)
+
+	// Marshal request body
+	body, err := json.Marshal(cfRecord)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequest("PUT", url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+p.apiToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	// Make request
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Parse response
+	var cfResp cloudflareResponse
+	if err := json.NewDecoder(resp.Body).Decode(&cfResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if !cfResp.Success {
+		if len(cfResp.Errors) > 0 {
+			return nil, fmt.Errorf("cloudflare API error: %s", cfResp.Errors[0].Message)
+		}
+		return nil, fmt.Errorf("cloudflare API request failed")
+	}
+
+	// Parse the updated record from response
+	var updatedRecord cloudflareRecord
+	if err := json.Unmarshal(cfResp.Result, &updatedRecord); err != nil {
+		return nil, fmt.Errorf("failed to parse updated record: %w", err)
+	}
+
+	// Convert back to models.DnsRecord
+	resultRecord := fromCloudflareRecord(updatedRecord)
+	return &resultRecord, nil
 }
 
 // DeleteRecord removes a DNS record from Cloudflare
 func (p *Provider) DeleteRecord(domain string, recordID string) error {
-	// TODO: Implement DNS record deletion
-	// DELETE {cloudflareAPIBase}/zones/{zoneID}/dns_records/{recordID}
-
 	if recordID == "" {
 		return fmt.Errorf("record ID is required for deletion")
+	}
+
+	url := fmt.Sprintf("%s/zones/%s/dns_records/%s", cloudflareAPIBase, p.zoneID, recordID)
+
+	// Create HTTP request
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+p.apiToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	// Make request
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Parse response
+	var cfResp cloudflareResponse
+	if err := json.NewDecoder(resp.Body).Decode(&cfResp); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if !cfResp.Success {
+		if len(cfResp.Errors) > 0 {
+			return fmt.Errorf("cloudflare API error: %s", cfResp.Errors[0].Message)
+		}
+		return fmt.Errorf("cloudflare API request failed")
 	}
 
 	return nil

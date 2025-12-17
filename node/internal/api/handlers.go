@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -83,6 +84,16 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if req.SSLEnabled {
 		log.Printf("Setting up SSL certificate for domain: %s (email: %s)", req.Domain, req.SSLEmail)
+
+		// Wait for DNS propagation before attempting SSL certificate
+		log.Printf("Waiting for DNS propagation for: %s", req.Domain)
+		if err := waitForDNSPropagation(req.Domain, 60*time.Second); err != nil {
+			log.Printf("[ERROR] DNS propagation timeout for %s: %v", req.Domain, err)
+			respondError(w, http.StatusInternalServerError, "DNS propagation timeout for "+req.Domain+": "+err.Error())
+			return
+		}
+		log.Printf("DNS propagation verified for: %s", req.Domain)
+
 		certPath, keyPath, err = h.sslManager.EnsureCertificate(ctx, req.ID, req.Domain, req.SSLCert, req.SSLKey, req.SSLEmail)
 		if err != nil {
 			log.Printf("[ERROR] Failed to setup SSL: %v", err)
