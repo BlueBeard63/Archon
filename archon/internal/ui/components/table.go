@@ -29,10 +29,13 @@ func NewTableComponent(columns []table.Column, rows []table.Row) *TableComponent
 	s.Header = lipgloss.NewStyle().
 		Bold(true).
 		BorderStyle(lipgloss.NormalBorder()).
-		BorderBottom(true)
+		BorderBottom(true).
+		Align(lipgloss.Left)
 	s.Selected = lipgloss.NewStyle().
 		Bold(true).
 		Underline(true)
+	s.Cell = lipgloss.NewStyle().
+		Align(lipgloss.Left)
 	t.SetStyles(s)
 
 	return &TableComponent{

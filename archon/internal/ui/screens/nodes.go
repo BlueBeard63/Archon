@@ -154,13 +154,21 @@ func RenderNodesListWithZones(s *state.AppState, zm *zone.Manager) string {
 
 // truncateNode truncates a string to maxLen characters
 func truncateNode(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
+	// If string is longer than maxLen, truncate it
+	if len(s) > maxLen {
+		if maxLen <= 3 {
+			return s[:maxLen]
+		}
+		return s[:maxLen-3] + "..."
 	}
-	if maxLen <= 3 {
-		return s[:maxLen]
+
+	// If string is shorter than maxLen, pad with spaces
+	if len(s) < maxLen {
+		return s + strings.Repeat(" ", maxLen-len(s))
 	}
-	return s[:maxLen-3] + "..."
+
+	// String is exactly maxLen
+	return s
 }
 
 // generateAPIKey generates a random 32-character API key

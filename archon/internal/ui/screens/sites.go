@@ -85,10 +85,10 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 			}
 
 			rows = append(rows, table.Row{
-				truncate(site.Name, 25),
-				truncate(domainDisplay, 18),
-				truncate(nodeName, 25),
-				truncate(portDisplay, 6),
+				truncate(site.Name, 20),
+				truncate(domainDisplay, 35),
+				truncate(nodeName, 20),
+				truncate(portDisplay, 20),
 				truncate(statusDisplay, 10),
 			})
 		}
@@ -96,10 +96,10 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		// 2. Initialize/update table
 		if s.SitesTable == nil {
 			columns := []table.Column{
-				{Title: "Name", Width: 25},
-				{Title: "Domain", Width: 18},
-				{Title: "Node", Width: 25},
-				{Title: "Port", Width: 6},
+				{Title: "Name", Width: 20},
+				{Title: "Domain", Width: 35},
+				{Title: "Node", Width: 20},
+				{Title: "Port", Width: 20},
 				{Title: "Status", Width: 10},
 			}
 			s.SitesTable = components.NewTableComponent(columns, rows)
@@ -231,15 +231,23 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 	)
 }
 
-// truncate truncates a string to maxLen characters
+// truncate truncates a string to maxLen characters and pads with spaces if shorter
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
+	// If string is longer than maxLen, truncate it
+	if len(s) > maxLen {
+		if maxLen <= 3 {
+			return s[:maxLen]
+		}
+		return s[:maxLen-3] + "..."
 	}
-	if maxLen <= 3 {
-		return s[:maxLen]
+
+	// If string is shorter than maxLen, pad with spaces
+	if len(s) < maxLen {
+		return s + strings.Repeat(" ", maxLen-len(s))
 	}
-	return s[:maxLen-3] + "..."
+
+	// String is exactly maxLen
+	return s
 }
 
 // RenderSiteCreate renders the site creation form
