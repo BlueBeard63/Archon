@@ -643,7 +643,7 @@ func (m Model) spawnDeploySite(siteID uuid.UUID) tea.Cmd {
 					} else {
 						// Record points to wrong IP - update it
 						existingRecord.Value = targetIP
-						_, err = dnsProvider.UpdateRecord(domain.Name, existingRecord)
+						_, err = dnsProvider.UpdateRecord(domain.Name, existingRecord, []string{site.ID.String() + " - updated by Archon (" + site.Name + ")"})
 						if err != nil {
 							return SiteDeployedMsg{
 								SiteID: siteID,
@@ -660,7 +660,7 @@ func (m Model) spawnDeploySite(siteID uuid.UUID) tea.Cmd {
 						300, // 5 minute TTL
 					)
 
-					_, err = dnsProvider.CreateRecord(domain.Name, record)
+					_, err = dnsProvider.CreateRecord(domain.Name, record, []string{site.ID.String() + " - updated by Archon (" + site.Name + ")"})
 					if err != nil {
 						return SiteDeployedMsg{
 							SiteID: siteID,

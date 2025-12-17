@@ -52,8 +52,8 @@ func (p *Provider) ListRecords(domain string) ([]models.DnsRecord, error) {
 
 	// Parse response
 	var cfResp struct {
-		Success bool              `json:"success"`
-		Errors  []cloudflareError `json:"errors"`
+		Success bool               `json:"success"`
+		Errors  []cloudflareError  `json:"errors"`
 		Result  []cloudflareRecord `json:"result"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&cfResp); err != nil {
@@ -77,12 +77,11 @@ func (p *Provider) ListRecords(domain string) ([]models.DnsRecord, error) {
 }
 
 // CreateRecord creates a new DNS record in Cloudflare
-func (p *Provider) CreateRecord(domain string, record *models.DnsRecord) (*models.DnsRecord, error) {
+func (p *Provider) CreateRecord(domain string, record *models.DnsRecord, tags []string) (*models.DnsRecord, error) {
 	url := fmt.Sprintf("%s/zones/%s/dns_records", cloudflareAPIBase, p.zoneID)
 
 	// Convert to Cloudflare format
-	cfRecord := toCloudflareRecord(record)
-
+	cfRecord := toCloudflareRecord(record, tags)
 	// Marshal request body
 	body, err := json.Marshal(cfRecord)
 	if err != nil {
@@ -130,7 +129,7 @@ func (p *Provider) CreateRecord(domain string, record *models.DnsRecord) (*model
 }
 
 // UpdateRecord updates an existing DNS record
-func (p *Provider) UpdateRecord(domain string, record *models.DnsRecord) (*models.DnsRecord, error) {
+func (p *Provider) UpdateRecord(domain string, record *models.DnsRecord, tags []string) (*models.DnsRecord, error) {
 	if record.ID == nil || *record.ID == "" {
 		return nil, fmt.Errorf("record ID is required for updates")
 	}
@@ -138,7 +137,7 @@ func (p *Provider) UpdateRecord(domain string, record *models.DnsRecord) (*model
 	url := fmt.Sprintf("%s/zones/%s/dns_records/%s", cloudflareAPIBase, p.zoneID, *record.ID)
 
 	// Convert to Cloudflare format
-	cfRecord := toCloudflareRecord(record)
+	cfRecord := toCloudflareRecord(record, tags)
 
 	// Marshal request body
 	body, err := json.Marshal(cfRecord)
@@ -240,22 +239,24 @@ type cloudflareError struct {
 
 // cloudflareRecord represents a DNS record in Cloudflare's format
 type cloudflareRecord struct {
-	ID      string `json:"id,omitempty"`
-	Type    string `json:"type"`
-	Name    string `json:"name"`
-	Content string `json:"content"`
-	TTL     int    `json:"ttl"`
-	Proxied bool   `json:"proxied"`
+	ID      string   `json:"id,omitempty"`
+	Type    string   `json:"type"`
+	Name    string   `json:"name"`
+	Content string   `json:"content"`
+	TTL     int      `json:"ttl"`
+	Proxied bool     `json:"proxied"`
+	Tags    []string `json:"tags,omitempty"`
 }
 
 // toCloudflareRecord converts models.DnsRecord to Cloudflare format
-func toCloudflareRecord(record *models.DnsRecord) cloudflareRecord {
+func toCloudflareRecord(record *models.DnsRecord, tags []string) cloudflareRecord {
 	cfRec := cloudflareRecord{
 		Type:    string(record.RecordType),
 		Name:    record.Name,
 		Content: record.Value,
 		TTL:     record.TTL,
 		Proxied: record.Proxied,
+		Tags:    tags,
 	}
 
 	// Include ID if it exists (for updates)

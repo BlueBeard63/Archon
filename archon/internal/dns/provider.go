@@ -14,10 +14,10 @@ type Provider interface {
 	ListRecords(domain string) ([]models.DnsRecord, error)
 
 	// CreateRecord creates a new DNS record
-	CreateRecord(domain string, record *models.DnsRecord) (*models.DnsRecord, error)
+	CreateRecord(domain string, record *models.DnsRecord, tags []string) (*models.DnsRecord, error)
 
 	// UpdateRecord updates an existing DNS record
-	UpdateRecord(domain string, record *models.DnsRecord) (*models.DnsRecord, error)
+	UpdateRecord(domain string, record *models.DnsRecord, tags []string) (*models.DnsRecord, error)
 
 	// DeleteRecord removes a DNS record by its ID
 	DeleteRecord(domain string, recordID string) error
