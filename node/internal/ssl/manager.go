@@ -14,27 +14,35 @@ import (
 )
 
 type Manager struct {
-	mode    config.SSLMode
-	certDir string
-	email   string
+	mode      config.SSLMode
+	certDir   string
+	email     string
+	proxyType config.ProxyType
 }
 
-func NewManager(cfg *config.SSLConfig) *Manager {
+func NewManager(sslCfg *config.SSLConfig, proxyType config.ProxyType) *Manager {
 	return &Manager{
-		mode:    cfg.Mode,
-		certDir: cfg.CertDir,
-		email:   cfg.Email,
+		mode:      sslCfg.Mode,
+		certDir:   sslCfg.CertDir,
+		email:     sslCfg.Email,
+		proxyType: proxyType,
 	}
 }
 
 // EnsureCertificate ensures SSL certificate exists for a domain
 // Returns paths to cert and key files
-func (m *Manager) EnsureCertificate(ctx context.Context, siteID uuid.UUID, domain string, certB64, keyB64 string) (string, string, error) {
+// If email is empty for Let's Encrypt mode, falls back to manager's default email
+func (m *Manager) EnsureCertificate(ctx context.Context, siteID uuid.UUID, domain string, certB64, keyB64, email string) (string, string, error) {
 	switch m.mode {
 	case config.SSLModeManual:
 		return m.handleManualCert(siteID, domain, certB64, keyB64)
 	case config.SSLModeLetsEncrypt:
-		return m.handleLetsEncrypt(ctx, domain)
+		// Use provided email, or fall back to manager's default
+		emailToUse := email
+		if emailToUse == "" {
+			emailToUse = m.email
+		}
+		return m.handleLetsEncrypt(ctx, domain, emailToUse)
 	case config.SSLModeTraefikAuto:
 		// Traefik handles certificates automatically
 		return "", "", nil
@@ -82,8 +90,8 @@ func (m *Manager) handleManualCert(siteID uuid.UUID, domain string, certB64, key
 }
 
 // handleLetsEncrypt obtains a certificate from Let's Encrypt using certbot
-func (m *Manager) handleLetsEncrypt(ctx context.Context, domain string) (string, string, error) {
-	if m.email == "" {
+func (m *Manager) handleLetsEncrypt(ctx context.Context, domain string, email string) (string, string, error) {
+	if email == "" {
 		return "", "", fmt.Errorf("email is required for Let's Encrypt")
 	}
 
@@ -92,16 +100,44 @@ func (m *Manager) handleLetsEncrypt(ctx context.Context, domain string) (string,
 		return "", "", fmt.Errorf("certbot is not installed: %w", err)
 	}
 
-	// Run certbot to obtain certificate
-	cmd := exec.CommandContext(ctx,
-		"certbot", "certonly",
-		"--standalone",
-		"--non-interactive",
-		"--agree-tos",
-		"--email", m.email,
-		"-d", domain,
-		"--http-01-port", "80",
-	)
+	// Build certbot command based on proxy type
+	var cmd *exec.Cmd
+	switch m.proxyType {
+	case config.ProxyTypeNginx:
+		// Use nginx plugin - it works with running nginx without modifying configs
+		cmd = exec.CommandContext(ctx,
+			"certbot", "certonly",
+			"--nginx",
+			"--non-interactive",
+			"--agree-tos",
+			"--email", email,
+			"-d", domain,
+		)
+	case config.ProxyTypeApache:
+		// Use apache plugin - it works with running apache without modifying configs
+		cmd = exec.CommandContext(ctx,
+			"certbot", "certonly",
+			"--apache",
+			"--non-interactive",
+			"--agree-tos",
+			"--email", email,
+			"-d", domain,
+		)
+	case config.ProxyTypeTraefik:
+		// Traefik should handle this automatically, but if we get here, try webroot
+		return "", "", fmt.Errorf("Traefik should use SSLModeTraefikAuto, not Let's Encrypt mode")
+	default:
+		// Fallback to standalone mode (will fail if port 80 is in use)
+		cmd = exec.CommandContext(ctx,
+			"certbot", "certonly",
+			"--standalone",
+			"--non-interactive",
+			"--agree-tos",
+			"--email", email,
+			"-d", domain,
+			"--http-01-port", "80",
+		)
+	}
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

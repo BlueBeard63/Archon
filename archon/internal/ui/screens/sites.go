@@ -201,10 +201,15 @@ func RenderSiteCreate(s *state.AppState) string {
 
 // RenderSiteCreateWithZones renders the site creation form with clickable fields
 func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
-	// Initialize form if needed (8 fields: basic + SSL email + env vars + config file)
+	// Initialize form if needed (8 fields: basic + subdomain + SSL email + config file, ENV vars handled separately)
 	if len(s.FormFields) != 8 {
-		s.FormFields = []string{"", "", "", "", "8080", "", "", ""}
+		s.FormFields = []string{"", "", "", "", "", "8080", "", ""}
 		s.CurrentFieldIndex = 0
+	}
+
+	// Initialize ENV vars with one empty pair if needed
+	if len(s.EnvVarPairs) == 0 {
+		s.EnvVarPairs = []state.EnvVarPair{{Key: "", Value: ""}}
 	}
 
 	title := titleStyle.Render("Create New Site")
@@ -212,11 +217,11 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	labels := []string{
 		"Name:",
 		"Domain:",
+		"Subdomain (optional):",
 		"Node:",
 		"Docker Image:",
 		"Port:",
 		"SSL Email (for Let's Encrypt):",
-		"Env Vars (KEY=VALUE, one per line):",
 		"Config File Path (optional):",
 	}
 
@@ -238,14 +243,14 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		fieldLine := label + " " + displayValue + "\n"
 		fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
 
-		// Show dropdown options for Domain (index 1) and Node (index 2) when focused
+		// Show dropdown options for Domain (index 1) and Node (index 3) when focused
 		if i == s.CurrentFieldIndex && i == 1 && s.DropdownOpen {
 			// Domain dropdown
 			dropdownOptions := renderDropdownOptions(s, s.Domains, s.DropdownIndex, func(d models.Domain) string {
 				return d.Name
 			})
 			fields += dropdownOptions + "\n"
-		} else if i == s.CurrentFieldIndex && i == 2 && s.DropdownOpen {
+		} else if i == s.CurrentFieldIndex && i == 3 && s.DropdownOpen {
 			// Node dropdown
 			dropdownOptions := renderDropdownOptions(s, s.Nodes, s.DropdownIndex, func(n models.Node) string {
 				return n.Name
@@ -254,26 +259,254 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 	}
 
+	// Render ENV vars section
+	envSection := renderEnvVarsSection(s, zm)
+	fields += "\n" + envSection
+
 	helpText := "\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel"
-	if s.CurrentFieldIndex == 1 || s.CurrentFieldIndex == 2 {
-		// On dropdown fields
+	if s.CurrentFieldIndex == 1 || s.CurrentFieldIndex == 3 {
+		// On dropdown fields (Domain=1, Node=3)
 		if s.DropdownOpen {
 			helpText = "\nUp/Down to select, Enter/Tab to confirm, Esc to cancel"
 		} else {
 			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
 		}
-	} else if s.CurrentFieldIndex == 5 {
-		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
+	} else if s.CurrentFieldIndex == 2 {
+		helpText = "\nOptional subdomain prefix (e.g., 'www', 'api', 'app'). Leave blank for root domain"
 	} else if s.CurrentFieldIndex == 6 {
-		helpText = "\nEnter env vars as KEY=VALUE (use | to separate multiple vars)"
+		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
 	} else if s.CurrentFieldIndex == 7 {
 		helpText = "\nEnter full path to config file (will be loaded when site is created)"
+	} else if s.CurrentFieldIndex == 100 {
+		// Special index for ENV vars
+		helpText = "\nType key/value, Tab to switch between key/value, +/- buttons to add/remove pairs"
 	}
 
 	help := helpStyle.Render(helpText)
-	note := helpStyle.Render("Note: Domain/Node use dropdowns • Env vars and config file are optional")
+	note := helpStyle.Render("Note: Domain/Node use dropdowns • Use + to add ENV vars, - to remove")
 
 	return title + "\n\n" + fields + "\n" + help + "\n" + note
+}
+
+// RenderSiteEdit renders the site editing form
+func RenderSiteEdit(s *state.AppState) string {
+	return RenderSiteEditWithZones(s, nil)
+}
+
+// RenderSiteEditWithZones renders the site editing form with clickable fields
+func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
+	// Find the site being edited
+	site := s.GetSiteByID(s.SelectedSiteID)
+	if site == nil {
+		return titleStyle.Render("Error: Site not found")
+	}
+
+	// Initialize form fields if needed (8 fields)
+	if len(s.FormFields) != 8 {
+		// Pre-populate with existing site data
+		s.FormFields = make([]string, 8)
+		s.FormFields[0] = site.Name
+		s.FormFields[4] = site.DockerImage
+		s.FormFields[6] = site.SSLEmail
+
+		// Get domain, subdomain, and port from first mapping
+		mappings := site.GetDomainMappings()
+		if len(mappings) > 0 {
+			// Find domain name
+			for _, d := range s.Domains {
+				if d.ID == mappings[0].DomainID {
+					s.FormFields[1] = d.Name
+					break
+				}
+			}
+			s.FormFields[2] = mappings[0].Subdomain // Subdomain field
+			s.FormFields[5] = fmt.Sprintf("%d", mappings[0].Port)
+		} else {
+			s.FormFields[1] = ""
+			s.FormFields[2] = ""
+			s.FormFields[5] = "8080"
+		}
+
+		// Find node name
+		for _, n := range s.Nodes {
+			if n.ID == site.NodeID {
+				s.FormFields[3] = n.Name
+				break
+			}
+		}
+
+		// Config file path (leave blank or show first config file name)
+		if len(site.ConfigFiles) > 0 {
+			s.FormFields[7] = site.ConfigFiles[0].Name
+		} else {
+			s.FormFields[7] = ""
+		}
+
+		s.CurrentFieldIndex = 0
+	}
+
+	// Initialize ENV vars from existing site if needed
+	if len(s.EnvVarPairs) == 0 {
+		if len(site.EnvironmentVars) > 0 {
+			// Convert map to pairs
+			for key, value := range site.EnvironmentVars {
+				s.EnvVarPairs = append(s.EnvVarPairs, state.EnvVarPair{
+					Key:   key,
+					Value: value,
+				})
+			}
+		} else {
+			// Start with one empty pair
+			s.EnvVarPairs = []state.EnvVarPair{{Key: "", Value: ""}}
+		}
+	}
+
+	title := titleStyle.Render("Edit Site: " + site.Name)
+
+	labels := []string{
+		"Name:",
+		"Domain:",
+		"Subdomain (optional):",
+		"Node:",
+		"Docker Image:",
+		"Port:",
+		"SSL Email (for Let's Encrypt):",
+		"Config File Path (optional):",
+	}
+
+	// Render each field with zones
+	var fields string
+	for i, label := range labels {
+		value := s.FormFields[i]
+		displayValue := value
+
+		// Show cursor if focused
+		if i == s.CurrentFieldIndex {
+			displayValue = value + "_"
+			label = "> " + label // Show arrow for focused field
+		} else {
+			label = "  " + label
+		}
+
+		// Wrap the entire field line in a clickable zone
+		fieldLine := label + " " + displayValue + "\n"
+		fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
+
+		// Show dropdown options for Domain (index 1) and Node (index 3) when focused
+		if i == s.CurrentFieldIndex && i == 1 && s.DropdownOpen {
+			// Domain dropdown
+			dropdownOptions := renderDropdownOptions(s, s.Domains, s.DropdownIndex, func(d models.Domain) string {
+				return d.Name
+			})
+			fields += dropdownOptions + "\n"
+		} else if i == s.CurrentFieldIndex && i == 3 && s.DropdownOpen {
+			// Node dropdown
+			dropdownOptions := renderDropdownOptions(s, s.Nodes, s.DropdownIndex, func(n models.Node) string {
+				return n.Name
+			})
+			fields += dropdownOptions + "\n"
+		}
+	}
+
+	// Render ENV vars section
+	envSection := renderEnvVarsSection(s, zm)
+	fields += "\n" + envSection
+
+	helpText := "\nTab/Shift+Tab to navigate, Enter to update, Esc to cancel"
+	if s.CurrentFieldIndex == 1 || s.CurrentFieldIndex == 3 {
+		// On dropdown fields (Domain=1, Node=3)
+		if s.DropdownOpen {
+			helpText = "\nUp/Down to select, Enter/Tab to confirm, Esc to cancel"
+		} else {
+			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
+		}
+	} else if s.CurrentFieldIndex == 2 {
+		helpText = "\nOptional subdomain prefix (e.g., 'www', 'api', 'app'). Leave blank for root domain"
+	} else if s.CurrentFieldIndex == 6 {
+		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
+	} else if s.CurrentFieldIndex == 7 {
+		helpText = "\nEnter full path to config file (will be loaded when site is updated)"
+	} else if s.CurrentFieldIndex == 100 {
+		// Special index for ENV vars
+		helpText = "\nType key/value, Tab to switch between key/value, +/- buttons to add/remove pairs"
+	}
+
+	help := helpStyle.Render(helpText)
+	note := helpStyle.Render("Note: Domain/Node use dropdowns • Use + to add ENV vars, - to remove")
+
+	return title + "\n\n" + fields + "\n" + help + "\n" + note
+}
+
+// renderEnvVarsSection renders the environment variables section with +/- buttons
+func renderEnvVarsSection(s *state.AppState, zm *zone.Manager) string {
+	var section strings.Builder
+
+	section.WriteString("Environment Variables:\n")
+
+	for i, pair := range s.EnvVarPairs {
+		// Determine if this pair is focused
+		isFocused := s.CurrentFieldIndex == 100 && s.EnvVarFocusedPair == i
+
+		// Render key field
+		keyValue := pair.Key
+		if isFocused && s.EnvVarFocusedField == 0 {
+			cursor := s.CursorPosition
+			if cursor < 0 {
+				cursor = 0
+			}
+			if cursor > len(keyValue) {
+				cursor = len(keyValue)
+			}
+			keyValue = keyValue[:cursor] + "_" + keyValue[cursor:]
+		}
+
+		// Render value field
+		valueDisplay := pair.Value
+		if isFocused && s.EnvVarFocusedField == 1 {
+			cursor := s.CursorPosition
+			if cursor < 0 {
+				cursor = 0
+			}
+			if cursor > len(valueDisplay) {
+				cursor = len(valueDisplay)
+			}
+			valueDisplay = valueDisplay[:cursor] + "_" + valueDisplay[cursor:]
+		}
+
+		// Build the row
+		prefix := "  "
+		if isFocused {
+			prefix = "> "
+		}
+
+		line := fmt.Sprintf("%s[%d] Key: %-20s Value: %-30s", prefix, i+1, keyValue, valueDisplay)
+
+		// Add +/- buttons
+		addBtn := "+ "
+		removeBtn := "- "
+		if len(s.EnvVarPairs) == 1 && i == 0 {
+			removeBtn = "  " // Can't remove the last one
+		}
+
+		if zm != nil {
+			addZoneID := fmt.Sprintf("env-add:%d", i)
+			removeZoneID := fmt.Sprintf("env-remove:%d", i)
+			keyZoneID := fmt.Sprintf("env-key:%d", i)
+			valueZoneID := fmt.Sprintf("env-value:%d", i)
+
+			section.WriteString(zm.Mark(keyZoneID, prefix+"Key: "))
+			section.WriteString(zm.Mark(valueZoneID, fmt.Sprintf("%-20s Value: %-30s ", keyValue, valueDisplay)))
+			section.WriteString(zm.Mark(addZoneID, addBtn))
+			if len(s.EnvVarPairs) > 1 || i > 0 {
+				section.WriteString(zm.Mark(removeZoneID, removeBtn))
+			}
+			section.WriteString("\n")
+		} else {
+			section.WriteString(line + " " + addBtn + removeBtn + "\n")
+		}
+	}
+
+	return section.String()
 }
 
 // renderDropdownOptions renders a dropdown list of options

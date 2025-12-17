@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
@@ -157,6 +158,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSitesListKeys(msg)
 	case state.ScreenSiteCreate:
 		return m.handleSiteCreateKeys(msg)
+	case state.ScreenSiteEdit:
+		return m.handleSiteEditKeys(msg)
 	case state.ScreenDomainsList:
 		return m.handleDomainsListKeys(msg)
 	case state.ScreenDomainCreate:
@@ -240,8 +243,8 @@ func (m Model) handleSitesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleSiteCreateKeys handles keys on the site creation form
 func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Check if we're on a dropdown field (Domain=1, Node=2)
-	isDropdownField := m.state.CurrentFieldIndex == 1 || m.state.CurrentFieldIndex == 2
+	// Check if we're on a dropdown field (Domain=1, Node=3)
+	isDropdownField := m.state.CurrentFieldIndex == 1 || m.state.CurrentFieldIndex == 3
 
 	// Handle dropdown-specific keys when dropdown is open
 	if m.state.DropdownOpen && isDropdownField {
@@ -258,7 +261,7 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			maxIndex := 0
 			if m.state.CurrentFieldIndex == 1 {
 				maxIndex = len(m.state.Domains) - 1
-			} else if m.state.CurrentFieldIndex == 2 {
+			} else if m.state.CurrentFieldIndex == 3 {
 				maxIndex = len(m.state.Nodes) - 1
 			}
 			if m.state.DropdownIndex < maxIndex {
@@ -270,8 +273,8 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Confirm selection and close dropdown
 			if m.state.CurrentFieldIndex == 1 && len(m.state.Domains) > 0 {
 				m.state.FormFields[1] = m.state.Domains[m.state.DropdownIndex].Name
-			} else if m.state.CurrentFieldIndex == 2 && len(m.state.Nodes) > 0 {
-				m.state.FormFields[2] = m.state.Nodes[m.state.DropdownIndex].Name
+			} else if m.state.CurrentFieldIndex == 3 && len(m.state.Nodes) > 0 {
+				m.state.FormFields[3] = m.state.Nodes[m.state.DropdownIndex].Name
 			}
 			m.state.DropdownOpen = false
 
@@ -291,6 +294,11 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.state.DropdownOpen = false
 			// Fall through to normal input handling
 		}
+	}
+
+	// Handle ENV var input if focused on ENV section
+	if m.state.CurrentFieldIndex == 100 {
+		return m.handleEnvVarInput(msg)
 	}
 
 	// Normal field input handling
@@ -340,8 +348,15 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.state.DropdownOpen {
 			m.state.DropdownOpen = false
 		}
-		// Move to next field
-		m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % len(m.state.FormFields)
+		// Move to next field or ENV section
+		m.state.CurrentFieldIndex++
+		if m.state.CurrentFieldIndex >= len(m.state.FormFields) {
+			// Move to ENV section
+			m.state.CurrentFieldIndex = 100
+			m.state.EnvVarFocusedPair = 0
+			m.state.EnvVarFocusedField = 0
+			m.state.CursorPosition = len(m.state.EnvVarPairs[0].Key)
+		}
 		return m, nil
 
 	case tea.KeyShiftTab:
@@ -365,6 +380,289 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		// Otherwise submit form
 		return m.handleSiteCreateSubmit()
+	}
+
+	return m, nil
+}
+
+// handleSiteEditKeys handles keys on the site edit form
+func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Check if we're on a dropdown field (Domain=1, Node=3)
+	isDropdownField := m.state.CurrentFieldIndex == 1 || m.state.CurrentFieldIndex == 3
+
+	// Handle dropdown-specific keys when dropdown is open
+	if m.state.DropdownOpen && isDropdownField {
+		switch msg.Type {
+		case tea.KeyUp:
+			// Navigate up in dropdown
+			if m.state.DropdownIndex > 0 {
+				m.state.DropdownIndex--
+			}
+			return m, nil
+
+		case tea.KeyDown:
+			// Navigate down in dropdown
+			maxIndex := 0
+			if m.state.CurrentFieldIndex == 1 {
+				maxIndex = len(m.state.Domains) - 1
+			} else if m.state.CurrentFieldIndex == 3 {
+				maxIndex = len(m.state.Nodes) - 1
+			}
+			if m.state.DropdownIndex < maxIndex {
+				m.state.DropdownIndex++
+			}
+			return m, nil
+
+		case tea.KeyEnter, tea.KeyTab:
+			// Confirm selection and close dropdown
+			if m.state.CurrentFieldIndex == 1 && len(m.state.Domains) > 0 {
+				m.state.FormFields[1] = m.state.Domains[m.state.DropdownIndex].Name
+			} else if m.state.CurrentFieldIndex == 3 && len(m.state.Nodes) > 0 {
+				m.state.FormFields[3] = m.state.Nodes[m.state.DropdownIndex].Name
+			}
+			m.state.DropdownOpen = false
+
+			// If Tab, move to next field
+			if msg.Type == tea.KeyTab {
+				m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % len(m.state.FormFields)
+			}
+			return m, nil
+
+		case tea.KeyEsc:
+			// Close dropdown without selecting
+			m.state.DropdownOpen = false
+			return m, nil
+
+		case tea.KeyBackspace, tea.KeyRunes, tea.KeySpace:
+			// Close dropdown and allow manual input
+			m.state.DropdownOpen = false
+			// Fall through to normal input handling
+		}
+	}
+
+	// Handle ENV var input if focused on ENV section
+	if m.state.CurrentFieldIndex == 100 {
+		return m.handleEnvVarInput(msg)
+	}
+
+	// Normal field input handling
+	switch msg.Type {
+	case tea.KeyUp:
+		// Open dropdown on up arrow if on dropdown field and not open
+		if isDropdownField && !m.state.DropdownOpen {
+			m.state.DropdownOpen = true
+			m.state.DropdownIndex = 0
+			return m, nil
+		}
+
+	case tea.KeyDown:
+		// Open dropdown on down arrow if on dropdown field and not open
+		if isDropdownField && !m.state.DropdownOpen {
+			m.state.DropdownOpen = true
+			m.state.DropdownIndex = 0
+			return m, nil
+		}
+
+	case tea.KeySpace:
+		// Add space to current field
+		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+			m.state.FormFields[m.state.CurrentFieldIndex] += " "
+		}
+		return m, nil
+
+	case tea.KeyRunes:
+		// Add character to current field
+		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+			m.state.FormFields[m.state.CurrentFieldIndex] += string(msg.Runes)
+		}
+		return m, nil
+
+	case tea.KeyBackspace:
+		// Remove last character from current field
+		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+			value := m.state.FormFields[m.state.CurrentFieldIndex]
+			if len(value) > 0 {
+				m.state.FormFields[m.state.CurrentFieldIndex] = value[:len(value)-1]
+			}
+		}
+		return m, nil
+
+	case tea.KeyTab:
+		// Close dropdown if open
+		if m.state.DropdownOpen {
+			m.state.DropdownOpen = false
+		}
+		// Move to next field or ENV section
+		m.state.CurrentFieldIndex++
+		if m.state.CurrentFieldIndex >= len(m.state.FormFields) {
+			// Move to ENV section
+			m.state.CurrentFieldIndex = 100
+			m.state.EnvVarFocusedPair = 0
+			m.state.EnvVarFocusedField = 0
+			m.state.CursorPosition = len(m.state.EnvVarPairs[0].Key)
+		}
+		return m, nil
+
+	case tea.KeyShiftTab:
+		// Close dropdown if open
+		if m.state.DropdownOpen {
+			m.state.DropdownOpen = false
+		}
+		// Move to previous field
+		m.state.CurrentFieldIndex--
+		if m.state.CurrentFieldIndex < 0 {
+			m.state.CurrentFieldIndex = len(m.state.FormFields) - 1
+		}
+		return m, nil
+
+	case tea.KeyEnter:
+		// If on dropdown field and not open, open it
+		if isDropdownField && !m.state.DropdownOpen {
+			m.state.DropdownOpen = true
+			m.state.DropdownIndex = 0
+			return m, nil
+		}
+		// Otherwise submit form
+		return m.handleSiteEditSubmit()
+	}
+
+	return m, nil
+}
+
+// handleEnvVarInput handles keyboard input for ENV var fields
+func (m Model) handleEnvVarInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if len(m.state.EnvVarPairs) == 0 {
+		return m, nil
+	}
+
+	pairIdx := m.state.EnvVarFocusedPair
+	if pairIdx >= len(m.state.EnvVarPairs) {
+		pairIdx = 0
+		m.state.EnvVarFocusedPair = 0
+	}
+
+	switch msg.Type {
+	case tea.KeyTab:
+		// Switch between key and value, or move to next pair
+		if m.state.EnvVarFocusedField == 0 {
+			// Move from key to value
+			m.state.EnvVarFocusedField = 1
+			m.state.CursorPosition = len(m.state.EnvVarPairs[pairIdx].Value)
+		} else {
+			// Move from value to next pair's key, or back to regular fields
+			if pairIdx < len(m.state.EnvVarPairs)-1 {
+				m.state.EnvVarFocusedPair++
+				m.state.EnvVarFocusedField = 0
+				m.state.CursorPosition = len(m.state.EnvVarPairs[m.state.EnvVarFocusedPair].Key)
+			} else {
+				// Done with ENV vars, move back to regular fields
+				m.state.CurrentFieldIndex = 0
+			}
+		}
+		return m, nil
+
+	case tea.KeyEnter:
+		// Submit form based on current screen
+		if m.state.CurrentScreen == state.ScreenSiteEdit {
+			return m.handleSiteEditSubmit()
+		}
+		return m.handleSiteCreateSubmit()
+
+	case tea.KeyEsc:
+		// Go back to main form
+		m.state.CurrentFieldIndex = len(m.state.FormFields) - 1
+		return m, nil
+
+	case tea.KeyLeft:
+		if m.state.CursorPosition > 0 {
+			m.state.CursorPosition--
+		}
+		return m, nil
+
+	case tea.KeyRight:
+		currentValue := ""
+		if m.state.EnvVarFocusedField == 0 {
+			currentValue = m.state.EnvVarPairs[pairIdx].Key
+		} else {
+			currentValue = m.state.EnvVarPairs[pairIdx].Value
+		}
+		if m.state.CursorPosition < len(currentValue) {
+			m.state.CursorPosition++
+		}
+		return m, nil
+
+	case tea.KeyHome:
+		m.state.CursorPosition = 0
+		return m, nil
+
+	case tea.KeyEnd:
+		if m.state.EnvVarFocusedField == 0 {
+			m.state.CursorPosition = len(m.state.EnvVarPairs[pairIdx].Key)
+		} else {
+			m.state.CursorPosition = len(m.state.EnvVarPairs[pairIdx].Value)
+		}
+		return m, nil
+
+	case tea.KeyBackspace:
+		cursor := m.state.CursorPosition
+		if cursor > 0 {
+			if m.state.EnvVarFocusedField == 0 {
+				// Editing key
+				value := m.state.EnvVarPairs[pairIdx].Key
+				m.state.EnvVarPairs[pairIdx].Key = value[:cursor-1] + value[cursor:]
+			} else {
+				// Editing value
+				value := m.state.EnvVarPairs[pairIdx].Value
+				m.state.EnvVarPairs[pairIdx].Value = value[:cursor-1] + value[cursor:]
+			}
+			m.state.CursorPosition--
+		}
+		return m, nil
+
+	case tea.KeyDelete:
+		cursor := m.state.CursorPosition
+		if m.state.EnvVarFocusedField == 0 {
+			// Editing key
+			value := m.state.EnvVarPairs[pairIdx].Key
+			if cursor < len(value) {
+				m.state.EnvVarPairs[pairIdx].Key = value[:cursor] + value[cursor+1:]
+			}
+		} else {
+			// Editing value
+			value := m.state.EnvVarPairs[pairIdx].Value
+			if cursor < len(value) {
+				m.state.EnvVarPairs[pairIdx].Value = value[:cursor] + value[cursor+1:]
+			}
+		}
+		return m, nil
+
+	case tea.KeySpace:
+		cursor := m.state.CursorPosition
+		if m.state.EnvVarFocusedField == 0 {
+			// Editing key
+			value := m.state.EnvVarPairs[pairIdx].Key
+			m.state.EnvVarPairs[pairIdx].Key = value[:cursor] + " " + value[cursor:]
+		} else {
+			// Editing value
+			value := m.state.EnvVarPairs[pairIdx].Value
+			m.state.EnvVarPairs[pairIdx].Value = value[:cursor] + " " + value[cursor:]
+		}
+		m.state.CursorPosition++
+		return m, nil
+
+	case tea.KeyRunes:
+		cursor := m.state.CursorPosition
+		if m.state.EnvVarFocusedField == 0 {
+			// Editing key
+			value := m.state.EnvVarPairs[pairIdx].Key
+			m.state.EnvVarPairs[pairIdx].Key = value[:cursor] + string(msg.Runes) + value[cursor:]
+		} else {
+			// Editing value
+			value := m.state.EnvVarPairs[pairIdx].Value
+			m.state.EnvVarPairs[pairIdx].Value = value[:cursor] + string(msg.Runes) + value[cursor:]
+		}
+		m.state.CursorPosition++
+		return m, nil
 	}
 
 	return m, nil
@@ -1229,23 +1527,25 @@ func (m Model) handleFormSubmit() (tea.Model, tea.Cmd) {
 
 // handleSiteCreateSubmit processes site creation form submission
 func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
-	// Validate required fields (first 5 fields, last 2 are optional)
-	for i := 0; i < 5; i++ {
+	// Validate required fields: Name(0), Domain(1), Node(3), Docker Image(4), Port(5)
+	// Subdomain(2) is optional
+	requiredFields := []int{0, 1, 3, 4, 5}
+	for _, i := range requiredFields {
 		if m.state.FormFields[i] == "" {
 			m.state.AddNotification("Required fields (Name, Domain, Node, Image, Port) must be filled", "error")
 			return m, nil
 		}
 	}
 
-	// Parse port
+	// Parse port (now at index 5)
 	var port int
-	_, err := fmt.Sscanf(m.state.FormFields[4], "%d", &port)
+	_, err := fmt.Sscanf(m.state.FormFields[5], "%d", &port)
 	if err != nil || port < 1 || port > 65535 {
 		m.state.AddNotification("Invalid port number", "error")
 		return m, nil
 	}
 
-	// Find domain by name
+	// Find domain by name (index 1)
 	var domainID uuid.UUID
 	domainFound := false
 	for _, domain := range m.state.Domains {
@@ -1260,45 +1560,43 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Find node by name
+	// Get subdomain (index 2, optional)
+	subdomain := strings.TrimSpace(m.state.FormFields[2])
+
+	// Find node by name (index 3)
 	var nodeID uuid.UUID
 	nodeFound := false
 	for _, node := range m.state.Nodes {
-		if node.Name == m.state.FormFields[2] {
+		if node.Name == m.state.FormFields[3] {
 			nodeID = node.ID
 			nodeFound = true
 			break
 		}
 	}
 	if !nodeFound {
-		m.state.AddNotification("Node not found: "+m.state.FormFields[2], "error")
+		m.state.AddNotification("Node not found: "+m.state.FormFields[3], "error")
 		return m, nil
 	}
 
-	// Create new site
-	site := models.NewSite(m.state.FormFields[0], domainID, nodeID, m.state.FormFields[3], port)
+	// Create new site (Docker Image is index 4)
+	site := models.NewSite(m.state.FormFields[0], domainID, nodeID, m.state.FormFields[4], port)
 
-	// Set SSL email (field 5) if provided
-	if m.state.FormFields[5] != "" {
-		site.SSLEmail = strings.TrimSpace(m.state.FormFields[5])
+	// Update domain mapping with subdomain
+	if len(site.DomainMappings) > 0 {
+		site.DomainMappings[0].Subdomain = subdomain
 	}
 
-	// Parse environment variables (field 6) if provided
+	// Set SSL email (field 6) if provided
 	if m.state.FormFields[6] != "" {
-		envVars := strings.Split(m.state.FormFields[6], "|")
-		for _, envVar := range envVars {
-			envVar = strings.TrimSpace(envVar)
-			if envVar == "" {
-				continue
-			}
-			parts := strings.SplitN(envVar, "=", 2)
-			if len(parts) == 2 {
-				key := strings.TrimSpace(parts[0])
-				value := strings.TrimSpace(parts[1])
-				if key != "" {
-					site.EnvironmentVars[key] = value
-				}
-			}
+		site.SSLEmail = strings.TrimSpace(m.state.FormFields[6])
+	}
+
+	// Parse environment variables from EnvVarPairs
+	for _, pair := range m.state.EnvVarPairs {
+		key := strings.TrimSpace(pair.Key)
+		value := strings.TrimSpace(pair.Value)
+		if key != "" {
+			site.EnvironmentVars[key] = value
 		}
 	}
 
@@ -1322,6 +1620,147 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 	m.state.Sites = append(m.state.Sites, *site)
 
 	m.state.AddNotification("Site created: "+site.Name, "success")
+
+	// Auto-save config if enabled
+	if m.state.AutoSave {
+		go func() {
+			_ = m.saveConfigSync()
+		}()
+	}
+
+	m.state.NavigateBack()
+
+	return m, nil
+}
+
+// handleSiteEditSubmit processes site edit form submission
+func (m Model) handleSiteEditSubmit() (tea.Model, tea.Cmd) {
+	// Find the site being edited
+	var siteIndex = -1
+	for i := range m.state.Sites {
+		if m.state.Sites[i].ID == m.state.SelectedSiteID {
+			siteIndex = i
+			break
+		}
+	}
+
+	if siteIndex == -1 {
+		m.state.AddNotification("Site not found", "error")
+		m.state.NavigateBack()
+		return m, nil
+	}
+
+	// Validate required fields: Name(0), Domain(1), Node(3), Docker Image(4), Port(5)
+	// Subdomain(2) is optional
+	requiredFields := []int{0, 1, 3, 4, 5}
+	for _, i := range requiredFields {
+		if m.state.FormFields[i] == "" {
+			m.state.AddNotification("Required fields (Name, Domain, Node, Image, Port) must be filled", "error")
+			return m, nil
+		}
+	}
+
+	// Parse port (now at index 5)
+	var port int
+	_, err := fmt.Sscanf(m.state.FormFields[5], "%d", &port)
+	if err != nil || port < 1 || port > 65535 {
+		m.state.AddNotification("Invalid port number", "error")
+		return m, nil
+	}
+
+	// Find domain by name (index 1)
+	var domainID uuid.UUID
+	domainFound := false
+	for _, domain := range m.state.Domains {
+		if domain.Name == m.state.FormFields[1] {
+			domainID = domain.ID
+			domainFound = true
+			break
+		}
+	}
+	if !domainFound {
+		m.state.AddNotification("Domain not found: "+m.state.FormFields[1], "error")
+		return m, nil
+	}
+
+	// Get subdomain (index 2, optional)
+	subdomain := strings.TrimSpace(m.state.FormFields[2])
+
+	// Find node by name (index 3)
+	var nodeID uuid.UUID
+	nodeFound := false
+	for _, node := range m.state.Nodes {
+		if node.Name == m.state.FormFields[3] {
+			nodeID = node.ID
+			nodeFound = true
+			break
+		}
+	}
+	if !nodeFound {
+		m.state.AddNotification("Node not found: "+m.state.FormFields[3], "error")
+		return m, nil
+	}
+
+	// Update site fields
+	oldName := m.state.Sites[siteIndex].Name
+	m.state.Sites[siteIndex].Name = m.state.FormFields[0]
+	m.state.Sites[siteIndex].DomainID = domainID
+	m.state.Sites[siteIndex].NodeID = nodeID
+	m.state.Sites[siteIndex].DockerImage = m.state.FormFields[4] // Docker Image at index 4
+	m.state.Sites[siteIndex].Port = port
+	m.state.Sites[siteIndex].SSLEmail = strings.TrimSpace(m.state.FormFields[6]) // SSL Email at index 6
+
+	// Update domain mappings with subdomain
+	m.state.Sites[siteIndex].DomainMappings = []models.DomainMapping{
+		{
+			DomainID:  domainID,
+			Subdomain: subdomain,
+			Port:      port,
+		},
+	}
+
+	// Update environment variables from EnvVarPairs
+	m.state.Sites[siteIndex].EnvironmentVars = make(map[string]string)
+	for _, pair := range m.state.EnvVarPairs {
+		key := strings.TrimSpace(pair.Key)
+		value := strings.TrimSpace(pair.Value)
+		if key != "" {
+			m.state.Sites[siteIndex].EnvironmentVars[key] = value
+		}
+	}
+
+	// Load config file (field 7) if provided
+	if m.state.FormFields[7] != "" {
+		configPath := strings.TrimSpace(m.state.FormFields[7])
+		content, err := os.ReadFile(configPath)
+		if err != nil {
+			m.state.AddNotification("Failed to read config file: "+err.Error(), "warning")
+		} else {
+			// Extract filename from path
+			filename := filepath.Base(configPath)
+			// Replace existing config files
+			m.state.Sites[siteIndex].ConfigFiles = []models.ConfigFile{
+				{
+					Name:          filename,
+					Content:       string(content),
+					ContainerPath: "/config/" + filename,
+				},
+			}
+		}
+	}
+
+	// Update timestamp
+	m.state.Sites[siteIndex].UpdatedAt = time.Now()
+
+	// Build notification message
+	var changes []string
+	if oldName != m.state.Sites[siteIndex].Name {
+		changes = append(changes, fmt.Sprintf("name: %s → %s", oldName, m.state.Sites[siteIndex].Name))
+	}
+	changes = append(changes, "updated site configuration")
+
+	message := "Site updated: " + strings.Join(changes, ", ")
+	m.state.AddNotification(message, "success")
 
 	// Auto-save config if enabled
 	if m.state.AutoSave {

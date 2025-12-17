@@ -68,11 +68,14 @@ type AppState struct {
 	NodeConfigViewport viewport.Model `json:"-"`
 
 	// Form state (for create/edit screens)
-	FormFields        []string `json:"form_fields"`        // Current values of form fields
-	CurrentFieldIndex int      `json:"current_field_index"` // Which field has focus
-	CursorPosition    int      `json:"cursor_position"`     // Cursor position within current field
-	DropdownOpen      bool     `json:"dropdown_open"`       // Is a dropdown currently expanded
-	DropdownIndex     int      `json:"dropdown_index"`      // Currently highlighted option in dropdown
+	FormFields        []string    `json:"form_fields"`        // Current values of form fields
+	CurrentFieldIndex int         `json:"current_field_index"` // Which field has focus
+	CursorPosition    int         `json:"cursor_position"`     // Cursor position within current field
+	DropdownOpen      bool        `json:"dropdown_open"`       // Is a dropdown currently expanded
+	DropdownIndex     int         `json:"dropdown_index"`      // Currently highlighted option in dropdown
+	EnvVarPairs       []EnvVarPair `json:"env_var_pairs"`       // Environment variable key-value pairs
+	EnvVarFocusedPair int         `json:"env_var_focused_pair"` // Which ENV pair is currently focused
+	EnvVarFocusedField int        `json:"env_var_focused_field"` // 0=key, 1=value
 
 	// Async operations tracking
 	PendingOperations []AsyncOperation `json:"pending_operations"`
@@ -90,6 +93,12 @@ type AppState struct {
 	CloudflareAPIToken string `json:"cloudflare_api_token"`
 	Route53AccessKey   string `json:"route53_access_key"`
 	Route53SecretKey   string `json:"route53_secret_key"`
+}
+
+// EnvVarPair represents a single environment variable key-value pair
+type EnvVarPair struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 // AsyncOperation tracks background operations like deployments

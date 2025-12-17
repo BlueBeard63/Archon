@@ -37,8 +37,8 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create proxy manager: %w", err)
 	}
 
-	// Create SSL manager
-	sslManager := ssl.NewManager(&cfg.SSL)
+	// Create SSL manager (pass proxy type for certbot integration)
+	sslManager := ssl.NewManager(&cfg.SSL, cfg.Proxy.Type)
 
 	// Create router
 	r := chi.NewRouter()

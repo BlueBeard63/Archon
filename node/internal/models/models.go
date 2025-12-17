@@ -25,6 +25,7 @@ type DeployRequest struct {
 	EnvironmentVars map[string]string `json:"environment_vars"`
 	Port            int               `json:"port"`
 	SSLEnabled      bool              `json:"ssl_enabled"`
+	SSLEmail        string            `json:"ssl_email,omitempty"`        // Email for Let's Encrypt
 	SSLCert         string            `json:"ssl_cert,omitempty"`         // Base64 encoded cert
 	SSLKey          string            `json:"ssl_key,omitempty"`          // Base64 encoded key
 	ConfigFiles     []ConfigFile      `json:"config_files"`

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -63,6 +64,14 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Log the received request for debugging
+	reqJSON, _ := json.MarshalIndent(req, "", "  ")
+	log.Printf("========================================")
+	log.Printf("Received Deploy Request:")
+	log.Printf("----------------------------------------")
+	log.Printf("%s", string(reqJSON))
+	log.Printf("========================================")
+
 	// Validate request
 	if req.Name == "" || req.Domain == "" || req.DockerImage == "" {
 		respondError(w, http.StatusBadRequest, "Missing required fields")
@@ -73,31 +82,42 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 	var certPath, keyPath string
 	var err error
 	if req.SSLEnabled {
-		certPath, keyPath, err = h.sslManager.EnsureCertificate(ctx, req.ID, req.Domain, req.SSLCert, req.SSLKey)
+		log.Printf("Setting up SSL certificate for domain: %s (email: %s)", req.Domain, req.SSLEmail)
+		certPath, keyPath, err = h.sslManager.EnsureCertificate(ctx, req.ID, req.Domain, req.SSLCert, req.SSLKey, req.SSLEmail)
 		if err != nil {
+			log.Printf("[ERROR] Failed to setup SSL: %v", err)
 			respondError(w, http.StatusInternalServerError, "Failed to setup SSL: "+err.Error())
 			return
 		}
+		log.Printf("SSL certificate obtained successfully: cert=%s, key=%s", certPath, keyPath)
 	}
 
 	// Deploy container
+	log.Printf("Deploying Docker container: image=%s, port=%d", req.DockerImage, req.Port)
 	deployResp, err := h.dockerClient.DeploySite(ctx, &req, h.dataDir)
 	if err != nil {
+		log.Printf("[ERROR] Failed to deploy site: %v", err)
 		respondError(w, http.StatusInternalServerError, "Failed to deploy site: "+err.Error())
 		return
 	}
+	log.Printf("Docker container deployed successfully: containerID=%s", deployResp.ContainerID)
 
 	// Configure reverse proxy
+	log.Printf("Configuring reverse proxy for domain: %s", req.Domain)
 	if err := h.proxyManager.Configure(ctx, &req, certPath, keyPath); err != nil {
+		log.Printf("[ERROR] Failed to configure proxy: %v", err)
 		respondError(w, http.StatusInternalServerError, "Failed to configure proxy: "+err.Error())
 		return
 	}
 
 	// Reload proxy
+	log.Printf("Reloading reverse proxy")
 	if err := h.proxyManager.Reload(ctx); err != nil {
+		log.Printf("[ERROR] Failed to reload proxy: %v", err)
 		respondError(w, http.StatusInternalServerError, "Failed to reload proxy: "+err.Error())
 		return
 	}
+	log.Printf("Site deployment completed successfully")
 
 	respondJSON(w, http.StatusOK, deployResp)
 }

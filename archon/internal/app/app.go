@@ -179,8 +179,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.state.SitesTable.SetCursor(i)
 					}
 
-					// TODO: Navigate to site edit screen
-					m.state.AddNotification("Edit site: "+site.Name+" (not yet implemented)", "info")
+					// Navigate to site edit screen
+					m.state.SelectedSiteID = site.ID
+					m.state.NavigateTo(state.ScreenSiteEdit)
 					return m, nil
 				}
 				if m.zone.Get(deleteID).InBounds(msg) {
@@ -272,6 +273,56 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.zone.Get(zoneID).InBounds(msg) {
 					if i < len(m.state.FormFields) {
 						m.state.CurrentFieldIndex = i
+						return m, nil
+					}
+				}
+			}
+
+			// Check ENV var clicks (for site creation and editing)
+			if m.state.CurrentScreen == state.ScreenSiteCreate || m.state.CurrentScreen == state.ScreenSiteEdit {
+				for i := 0; i < len(m.state.EnvVarPairs); i++ {
+					// Add button
+					addZone := fmt.Sprintf("env-add:%d", i)
+					if m.zone.Get(addZone).InBounds(msg) {
+						// Add new ENV pair after this one
+						newPair := state.EnvVarPair{Key: "", Value: ""}
+						m.state.EnvVarPairs = append(m.state.EnvVarPairs[:i+1], append([]state.EnvVarPair{newPair}, m.state.EnvVarPairs[i+1:]...)...)
+						m.state.CurrentFieldIndex = 100 // ENV var section
+						m.state.EnvVarFocusedPair = i + 1
+						m.state.EnvVarFocusedField = 0
+						m.state.CursorPosition = 0
+						return m, nil
+					}
+
+					// Remove button
+					removeZone := fmt.Sprintf("env-remove:%d", i)
+					if m.zone.Get(removeZone).InBounds(msg) {
+						if len(m.state.EnvVarPairs) > 1 {
+							m.state.EnvVarPairs = append(m.state.EnvVarPairs[:i], m.state.EnvVarPairs[i+1:]...)
+							if m.state.EnvVarFocusedPair >= len(m.state.EnvVarPairs) {
+								m.state.EnvVarFocusedPair = len(m.state.EnvVarPairs) - 1
+							}
+						}
+						return m, nil
+					}
+
+					// Key field
+					keyZone := fmt.Sprintf("env-key:%d", i)
+					if m.zone.Get(keyZone).InBounds(msg) {
+						m.state.CurrentFieldIndex = 100
+						m.state.EnvVarFocusedPair = i
+						m.state.EnvVarFocusedField = 0
+						m.state.CursorPosition = len(m.state.EnvVarPairs[i].Key)
+						return m, nil
+					}
+
+					// Value field
+					valueZone := fmt.Sprintf("env-value:%d", i)
+					if m.zone.Get(valueZone).InBounds(msg) {
+						m.state.CurrentFieldIndex = 100
+						m.state.EnvVarFocusedPair = i
+						m.state.EnvVarFocusedField = 1
+						m.state.CursorPosition = len(m.state.EnvVarPairs[i].Value)
 						return m, nil
 					}
 				}

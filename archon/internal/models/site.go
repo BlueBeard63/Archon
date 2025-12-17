@@ -41,8 +41,9 @@ type ConfigFile struct {
 
 // DomainMapping represents a domain-to-port mapping for multi-domain sites
 type DomainMapping struct {
-	DomainID uuid.UUID `json:"domain_id" toml:"domain_id"`
-	Port     int       `json:"port" toml:"port"`
+	DomainID  uuid.UUID `json:"domain_id" toml:"domain_id"`
+	Subdomain string    `json:"subdomain,omitempty" toml:"subdomain,omitempty"` // Optional subdomain (e.g., "www", "api", "app"). Empty = root domain
+	Port      int       `json:"port" toml:"port"`
 }
 
 // GenerateTraefikLabels generates Docker labels for Traefik reverse proxy configuration
@@ -128,4 +129,12 @@ func (s *Site) RemoveDomainMapping(index int) {
 		s.DomainMappings = append(s.DomainMappings[:index], s.DomainMappings[index+1:]...)
 		s.UpdatedAt = time.Now()
 	}
+}
+
+// GetFullDomain returns the full domain name for a mapping (subdomain.domain or just domain)
+func GetFullDomain(domainName, subdomain string) string {
+	if subdomain == "" {
+		return domainName
+	}
+	return subdomain + "." + domainName
 }
