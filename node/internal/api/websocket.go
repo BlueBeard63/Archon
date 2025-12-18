@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/BlueBeard63/archon-node/internal/models"
+	"github.com/BlueBeard63/archon-node/internal/ssl"
 )
 
 var upgrader = websocket.Upgrader{
@@ -84,7 +86,7 @@ func (h *Handlers) HandleDeploySiteWebSocket(w http.ResponseWriter, r *http.Requ
 	log.Printf("========================================")
 
 	// Validate request
-	if req.Name == "" || req.Domain == "" || req.Docker.Image == "" {
+	if req.Name == "" || len(req.DomainMappings) == 0 || req.Docker.Image == "" {
 		sendError(conn, "Missing required fields")
 		return
 	}
@@ -95,17 +97,40 @@ func (h *Handlers) HandleDeploySiteWebSocket(w http.ResponseWriter, r *http.Requ
 	// Ensure SSL certificates if needed
 	var certPath, keyPath string
 	if req.SSLEnabled {
-		sendProgress(conn, "Setting up SSL certificate for domain: "+req.Domain, "ssl")
+		// Get all domains to be configured
+		domainMappings := getDomainMappingsForHandler(&req)
+		domains := make([]string, 0, len(domainMappings))
+		for _, mapping := range domainMappings {
+			domains = append(domains, mapping.Domain)
+		}
 
-		// Check if certificate already exists
-		certPath = filepath.Join("/etc/letsencrypt/live", req.Domain, "fullchain.pem")
-		keyPath = filepath.Join("/etc/letsencrypt/live", req.Domain, "privkey.pem")
+		sendProgress(conn, "Setting up SSL certificate for "+fmt.Sprintf("%d domains", len(domains)), "ssl")
 
-		certExists := fileExists(certPath)
-		keyExists := fileExists(keyPath)
+		// Check if a valid SAN certificate already exists that covers all domains
+		existingCertPath, existingKeyPath, coveredDomains, err := ssl.FindCertificateForDomains(domains)
+		allCovered := false
+		if err == nil && len(coveredDomains) > 0 {
+			// Check if all requested domains are covered
+			allCovered = true
+			for _, d := range domains {
+				found := false
+				for _, covered := range coveredDomains {
+					if covered == d {
+						found = true
+						break
+					}
+				}
+				if !found {
+					allCovered = false
+					break
+				}
+			}
+		}
 
-		if certExists && keyExists {
-			sendProgress(conn, "SSL certificate already exists for domain: "+req.Domain, "ssl")
+		if allCovered {
+			sendProgress(conn, "Existing SAN certificate covers all "+fmt.Sprintf("%d domains", len(domains)), "ssl")
+			certPath = existingCertPath
+			keyPath = existingKeyPath
 		} else {
 			// For Let's Encrypt, configure proxy first to serve validation challenges
 			sendProgress(conn, "Configuring reverse proxy for Let's Encrypt validation", "ssl")
@@ -121,20 +146,25 @@ func (h *Handlers) HandleDeploySiteWebSocket(w http.ResponseWriter, r *http.Requ
 				return
 			}
 
-			// Wait for DNS propagation before attempting SSL certificate
-			sendProgress(conn, "Waiting for DNS propagation for: "+req.Domain, "ssl")
-			if err := waitForDNSPropagation(req.Domain, 60*time.Second); err != nil {
-				sendError(conn, "DNS propagation timeout for "+req.Domain+": "+err.Error())
-				return
+			// Wait for DNS propagation for all domains
+			for _, domain := range domains {
+				sendProgress(conn, "Waiting for DNS propagation for: "+domain, "ssl")
+				if err := waitForDNSPropagation(domain, 60*time.Second); err != nil {
+					sendError(conn, "DNS propagation timeout for "+domain+": "+err.Error())
+					return
+				}
+				sendProgress(conn, "DNS propagation verified for: "+domain, "ssl")
 			}
-			sendProgress(conn, "DNS propagation verified for: "+req.Domain, "ssl")
 
-			_, _, err = h.sslManager.EnsureCertificate(ctx, req.ID, req.Domain, req.SSLCert, req.SSLKey, req.SSLEmail)
+			// Request SAN certificate for all domains
+			sendProgress(conn, "Generating SSL certificate for "+fmt.Sprintf("%d domains", len(domains)), "ssl")
+			var err error
+			certPath, keyPath, err = h.sslManager.EnsureCertificateMulti(ctx, req.ID, domains, req.SSLCert, req.SSLKey, req.SSLEmail)
 			if err != nil {
 				sendError(conn, "Failed to setup SSL: "+err.Error())
 				return
 			}
-			sendProgress(conn, "SSL certificate obtained successfully", "ssl")
+			sendProgress(conn, "SSL certificate obtained successfully for "+fmt.Sprintf("%d domains", len(domains)), "ssl")
 		}
 	}
 
@@ -163,17 +193,22 @@ func (h *Handlers) HandleDeploySiteWebSocket(w http.ResponseWriter, r *http.Requ
 	sendProgress(conn, "Docker container deployed successfully: "+containerIDDisplay, "docker")
 
 	// Configure reverse proxy
-	sendProgress(conn, "Configuring reverse proxy for domain: "+req.Domain, "proxy")
+	sendProgress(conn, "Configuring reverse proxy for "+fmt.Sprintf("%d domains", len(req.DomainMappings)), "proxy")
 
-	// Check if proxy config already exists
-	proxyConfigPath := filepath.Join("/etc/apache2/sites-enabled", req.Domain+".conf") // For Apache
-	// Also check nginx path as fallback
-	nginxConfigPath := filepath.Join("/etc/nginx/sites-enabled", req.Domain)
+	// Check if proxy config already exists for all domains
+	allProxyConfigsExist := true
+	for _, mapping := range req.DomainMappings {
+		domain := mapping.Domain
+		apacheConfigPath := filepath.Join("/etc/apache2/sites-enabled", domain+".conf")
+		nginxConfigPath := filepath.Join("/etc/nginx/sites-enabled", domain)
+		if !fileExists(apacheConfigPath) && !fileExists(nginxConfigPath) {
+			allProxyConfigsExist = false
+			break
+		}
+	}
 
-	proxyExists := fileExists(proxyConfigPath) || fileExists(nginxConfigPath)
-
-	if proxyExists {
-		sendProgress(conn, "Proxy configuration already exists for domain: "+req.Domain, "proxy")
+	if allProxyConfigsExist {
+		sendProgress(conn, "Proxy configuration already exists for all "+fmt.Sprintf("%d domains", len(req.DomainMappings)), "proxy")
 	} else {
 		if err := h.proxyManager.Configure(ctx, &req, certPath, keyPath); err != nil {
 			sendError(conn, "Failed to configure proxy: "+err.Error())

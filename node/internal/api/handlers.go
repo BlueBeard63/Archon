@@ -74,7 +74,7 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 	log.Printf("========================================")
 
 	// Validate request
-	if req.Name == "" || req.Domain == "" || req.Docker.Image == "" {
+	if req.Name == "" || len(req.DomainMappings) == 0 || req.Docker.Image == "" {
 		respondError(w, http.StatusBadRequest, "Missing required fields")
 		return
 	}
@@ -121,17 +121,17 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Request certificate for all domains (uses SAN if multiple domains)
-		certPath, keyPath, err = h.sslManager.EnsureCertificateMulti(ctx, req.ID, domains, req.SSLCert, req.SSLKey, req.SSLEmail)
+		_, _, err := h.sslManager.EnsureCertificateMulti(ctx, req.ID, domains, req.SSLCert, req.SSLKey, req.SSLEmail)
 		if err != nil {
 			log.Printf("[ERROR] Failed to setup SSL: %v", err)
 			respondError(w, http.StatusInternalServerError, "Failed to setup SSL: "+err.Error())
 			return
 		}
-		log.Printf("SSL certificate obtained successfully for %d domains: cert=%s, key=%s", len(domains), certPath, keyPath)
+		log.Printf("SSL certificate obtained successfully for %d domains", len(domains))
 	}
 
 	// Deploy container
-	log.Printf("Deploying Docker container: image=%s, port=%d", req.Docker.Image, req.Port)
+	log.Printf("Deploying Docker container: image=%s, domains=%d", req.Docker.Image, len(req.DomainMappings))
 	deployResp, err := h.dockerClient.DeploySite(ctx, &req, h.dataDir)
 	if err != nil {
 		log.Printf("[ERROR] Failed to deploy site: %v", err)
@@ -141,7 +141,7 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Docker container deployed successfully: containerID=%s", deployResp.ContainerID)
 
 	// Configure reverse proxy
-	log.Printf("Configuring reverse proxy for domain: %s", req.Domain)
+	log.Printf("Configuring reverse proxy for %d domains", len(req.DomainMappings))
 	if err := h.proxyManager.Configure(ctx, &req, certPath, keyPath); err != nil {
 		log.Printf("[ERROR] Failed to configure proxy: %v", err)
 		respondError(w, http.StatusInternalServerError, "Failed to configure proxy: "+err.Error())
@@ -294,17 +294,6 @@ func (h *Handlers) HandleGetLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 // getDomainMappingsForHandler extracts domain-port mappings from a DeployRequest
-// Falls back to legacy Domain and Port if DomainMappings is empty
 func getDomainMappingsForHandler(site *models.DeployRequest) []models.DomainMapping {
-	if len(site.DomainMappings) > 0 {
-		return site.DomainMappings
-	}
-
-	// Fallback: use legacy Domain and Port fields
-	return []models.DomainMapping{
-		{
-			Domain: site.Domain,
-			Port:   site.Port,
-		},
-	}
+	return site.DomainMappings
 }

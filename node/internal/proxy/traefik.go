@@ -28,7 +28,7 @@ func (t *TraefikManager) ConfigureForValidation(ctx context.Context, site *model
 
 // Configure for Traefik is a no-op because Traefik uses Docker labels
 // The labels are already set on the container when it's deployed
-func (t *TraefikManager) Configure(ctx context.Context, site *models.DeployRequest, certPath, keyPath string) error {
+func (t *TraefikManager) Configure(ctx context.Context, site *models.DeployRequest, _, _ string) error {
 	// Traefik configuration is done via Docker labels
 	// which are already set in the DeploySite request
 	return nil

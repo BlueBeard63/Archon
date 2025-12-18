@@ -53,19 +53,16 @@ func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, 
 	req := struct {
 		ID              uuid.UUID           `json:"id"`
 		Name            string              `json:"name"`
-		Domain          string              `json:"domain"` // Legacy: kept for backward compatibility
 		Docker          Docker              `json:"docker"`
 		EnvironmentVars map[string]string   `json:"environment_vars"`
-		Port            int                 `json:"port"`                      // Legacy: kept for backward compatibility
-		DomainMappings  []DomainMapping     `json:"domain_mappings,omitempty"` // New: multiple domain-port mappings
+		DomainMappings  []DomainMapping     `json:"domain_mappings"`
 		SSLEnabled      bool                `json:"ssl_enabled"`
 		SSLEmail        string              `json:"ssl_email,omitempty"`
 		ConfigFiles     []models.ConfigFile `json:"config_files"`
 		TraefikLabels   map[string]string   `json:"traefik_labels,omitempty"`
 	}{
-		ID:     site.ID,
-		Name:   site.Name,
-		Domain: domainName, // Keep for backward compatibility
+		ID:   site.ID,
+		Name: site.Name,
 		Docker: Docker{
 			Image: site.DockerImage,
 			Credentials: DockerCredentials{
@@ -74,7 +71,6 @@ func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, 
 			},
 		},
 		EnvironmentVars: site.EnvironmentVars,
-		Port:            site.Port, // Keep for backward compatibility
 		DomainMappings:  domainMappings,
 		SSLEnabled:      site.SSLEnabled,
 		SSLEmail:        site.SSLEmail,
@@ -127,19 +123,16 @@ func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *mode
 	req := struct {
 		ID              uuid.UUID           `json:"id"`
 		Name            string              `json:"name"`
-		Domain          string              `json:"domain"` // Legacy: kept for backward compatibility
 		Docker          Docker              `json:"docker"`
 		EnvironmentVars map[string]string   `json:"environment_vars"`
-		Port            int                 `json:"port"`                      // Legacy: kept for backward compatibility
-		DomainMappings  []DomainMapping     `json:"domain_mappings,omitempty"` // New: multiple domain-port mappings
+		DomainMappings  []DomainMapping     `json:"domain_mappings"`
 		SSLEnabled      bool                `json:"ssl_enabled"`
 		SSLEmail        string              `json:"ssl_email,omitempty"`
 		ConfigFiles     []models.ConfigFile `json:"config_files"`
 		TraefikLabels   map[string]string   `json:"traefik_labels,omitempty"`
 	}{
-		ID:     site.ID,
-		Name:   site.Name,
-		Domain: domainName, // Keep for backward compatibility
+		ID:   site.ID,
+		Name: site.Name,
 		Docker: Docker{
 			Image: site.DockerImage,
 			Credentials: DockerCredentials{
@@ -148,7 +141,6 @@ func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *mode
 			},
 		},
 		EnvironmentVars: site.EnvironmentVars,
-		Port:            site.Port, // Keep for backward compatibility
 		DomainMappings:  domainMappings,
 		SSLEnabled:      site.SSLEnabled,
 		SSLEmail:        site.SSLEmail,
@@ -430,45 +422,37 @@ type DomainMapping struct {
 }
 
 // convertToNodeDomainMappings converts site domain mappings to node API format
-// This function extracts all domain-port pairs from the site's DomainMappings
-// In a real implementation, this would resolve domain UUIDs to actual domain names
-// For now, it creates a single mapping using the provided domainName
+// Resolves domain UUIDs to actual domain names from the site's DomainMappings
 func convertToNodeDomainMappings(site *models.Site, domainName string) []DomainMapping {
-	// If DomainMappings is populated, use those
-	if len(site.DomainMappings) > 0 {
-		// In a full implementation, you would need to:
-		// 1. Resolve each DomainMapping.DomainID to the actual domain name
-		// 2. Handle the optional Subdomain field
-		// For now, we create a mapping with the provided domainName
-		// This is a placeholder that needs domain lookup capability
+	// Extract the base domain by examining the mappings and domainName
+	var baseDomain string
 
-		// Create mappings with the primary domain provided
-		mappings := make([]DomainMapping, 0, len(site.DomainMappings))
-		for i, mapping := range site.DomainMappings {
-			// For the first mapping, use the provided domainName
-			if i == 0 {
-				mappings = append(mappings, DomainMapping{
-					Domain: domainName,
-					Port:   mapping.Port,
-				})
-			} else {
-				// For subsequent mappings, we would need domain resolution
-				// For now, skip them with a comment
-				// TODO: Resolve DomainID to actual domain name
-				// mappings = append(mappings, DomainMapping{
-				//     Domain: resolvedDomain,
-				//     Port:   mapping.Port,
-				// })
-			}
+	// Look for a mapping with a subdomain that appears in domainName
+	for _, mapping := range site.DomainMappings {
+		if mapping.Subdomain != "" && strings.HasPrefix(domainName, mapping.Subdomain+".") {
+			// Found a subdomain that matches - extract base by removing it
+			baseDomain = strings.TrimPrefix(domainName, mapping.Subdomain+".")
+			break
 		}
-		return mappings
 	}
 
-	// Fallback: use legacy Domain and Port fields
-	return []DomainMapping{
-		{
-			Domain: domainName,
-			Port:   site.Port,
-		},
+	// If no subdomain was found in domainName, domainName itself is likely the base
+	if baseDomain == "" {
+		baseDomain = domainName
 	}
+
+	// Create mappings for all domain mappings in the site
+	mappings := make([]DomainMapping, 0, len(site.DomainMappings))
+	for _, mapping := range site.DomainMappings {
+		// Construct the full domain including subdomain if present
+		fullDomain := baseDomain
+		if mapping.Subdomain != "" {
+			fullDomain = mapping.Subdomain + "." + baseDomain
+		}
+		mappings = append(mappings, DomainMapping{
+			Domain: fullDomain,
+			Port:   mapping.Port,
+		})
+	}
+	return mappings
 }

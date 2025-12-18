@@ -13,6 +13,7 @@ import (
 
 	"github.com/BlueBeard63/archon-node/internal/config"
 	"github.com/BlueBeard63/archon-node/internal/models"
+	"github.com/BlueBeard63/archon-node/internal/ssl"
 )
 
 type ApacheManager struct {
@@ -31,35 +32,35 @@ func NewApacheManager(cfg *config.ProxyConfig, sslCfg *config.SSLConfig) *Apache
 
 // Template for initial Apache configuration on port 80
 // The Apache plugin will modify this configuration to add ACME challenge handling
-const apacheValidationTemplate = `{{ range .Domains -}}
+const apacheValidationTemplate = `{{ range $domain, $mapping := .Domains -}}
 <VirtualHost *:80>
-    ServerName {{ .Domain }}
+    ServerName {{ $domain }}
 
     # Proxy configuration
     ProxyPreserveHost On
-    ProxyPass / http://127.0.0.1:{{ .Port }}/
-    ProxyPassReverse / http://127.0.0.1:{{ .Port }}/
+    ProxyPass / http://127.0.0.1:{{ $mapping.Port }}/
+    ProxyPassReverse / http://127.0.0.1:{{ $mapping.Port }}/
 
     # WebSocket support
     RewriteEngine On
     RewriteCond %{HTTP:Upgrade} =websocket [NC]
-    RewriteRule /(.*)           ws://127.0.0.1:{{ .Port }}/$1 [P,L]
+    RewriteRule /(.*)           ws://127.0.0.1:{{ $mapping.Port }}/$1 [P,L]
 
     # Request headers
     RequestHeader set X-Forwarded-Proto "http"
     RequestHeader set X-Forwarded-Port "80"
 
     # Access and error logs
-    ErrorLog ${APACHE_LOG_DIR}/{{ .Domain }}_error.log
-    CustomLog ${APACHE_LOG_DIR}/{{ .Domain }}_access.log combined
+    ErrorLog ${APACHE_LOG_DIR}/{{ $domain }}_error.log
+    CustomLog ${APACHE_LOG_DIR}/{{ $domain }}_access.log combined
 </VirtualHost>
 {{ end }}
 `
 
 // Full Apache configuration template with SSL
-const apacheConfigTemplate = `{{ range .Domains -}}
+const apacheConfigTemplate = `{{ range $domain, $mapping := .Domains -}}
 <VirtualHost *:80>
-    ServerName {{ .Domain }}
+    ServerName {{ $domain }}
 
     {{- if $.SSLEnabled }}
     # Redirect HTTP to HTTPS
@@ -69,13 +70,13 @@ const apacheConfigTemplate = `{{ range .Domains -}}
     {{- else }}
     # Proxy configuration
     ProxyPreserveHost On
-    ProxyPass / http://127.0.0.1:{{ .Port }}/
-    ProxyPassReverse / http://127.0.0.1:{{ .Port }}/
+    ProxyPass / http://127.0.0.1:{{ $mapping.Port }}/
+    ProxyPassReverse / http://127.0.0.1:{{ $mapping.Port }}/
 
     # WebSocket support
     RewriteEngine On
     RewriteCond %{HTTP:Upgrade} =websocket [NC]
-    RewriteRule /(.*)           ws://127.0.0.1:{{ .Port }}/$1 [P,L]
+    RewriteRule /(.*)           ws://127.0.0.1:{{ $mapping.Port }}/$1 [P,L]
 
     # Request headers
     RequestHeader set X-Forwarded-Proto "http"
@@ -83,19 +84,19 @@ const apacheConfigTemplate = `{{ range .Domains -}}
     {{- end }}
 
     # Access and error logs
-    ErrorLog ${APACHE_LOG_DIR}/{{ .Domain }}_error.log
-    CustomLog ${APACHE_LOG_DIR}/{{ .Domain }}_access.log combined
+    ErrorLog ${APACHE_LOG_DIR}/{{ $domain }}_error.log
+    CustomLog ${APACHE_LOG_DIR}/{{ $domain }}_access.log combined
 </VirtualHost>
 
 {{- if $.SSLEnabled }}
 
 <VirtualHost *:443>
-    ServerName {{ .Domain }}
+    ServerName {{ $domain }}
 
     # SSL Configuration
     SSLEngine on
-    SSLCertificateFile {{ $.CertPath }}
-    SSLCertificateKeyFile {{ $.KeyPath }}
+    SSLCertificateFile {{ $mapping.CertPath }}
+    SSLCertificateKeyFile {{ $mapping.KeyPath }}
     SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
     SSLCipherSuite HIGH:!aNULL:!MD5
     SSLHonorCipherOrder on
@@ -108,37 +109,30 @@ const apacheConfigTemplate = `{{ range .Domains -}}
 
     # Proxy configuration
     ProxyPreserveHost On
-    ProxyPass / http://127.0.0.1:{{ .Port }}/
-    ProxyPassReverse / http://127.0.0.1:{{ .Port }}/
+    ProxyPass / http://127.0.0.1:{{ $mapping.Port }}/
+    ProxyPassReverse / http://127.0.0.1:{{ $mapping.Port }}/
 
     # WebSocket support
     RewriteEngine On
     RewriteCond %{HTTP:Upgrade} =websocket [NC]
-    RewriteRule /(.*)           ws://127.0.0.1:{{ .Port }}/$1 [P,L]
+    RewriteRule /(.*)           ws://127.0.0.1:{{ $mapping.Port }}/$1 [P,L]
 
     # Request headers
     RequestHeader set X-Forwarded-Proto "https"
     RequestHeader set X-Forwarded-Port "443"
 
     # Access and error logs
-    ErrorLog ${APACHE_LOG_DIR}/{{ .Domain }}_error.log
-    CustomLog ${APACHE_LOG_DIR}/{{ .Domain }}_access.log combined
+    ErrorLog ${APACHE_LOG_DIR}/{{ $domain }}_error.log
+    CustomLog ${APACHE_LOG_DIR}/{{ $domain }}_access.log combined
 </VirtualHost>
 
 {{- end }}
 {{ end }}
 `
 
-type apacheDomainPortPair struct {
-	Domain string
-	Port   int
-}
-
 type apacheTemplateData struct {
-	Domains    []apacheDomainPortPair
+	Domains    map[string]DomainMappingPair
 	SSLEnabled bool
-	CertPath   string
-	KeyPath    string
 }
 
 // ConfigureForValidation configures Apache with simple HTTP vhosts for Let's Encrypt validation
@@ -170,18 +164,19 @@ func (a *ApacheManager) ConfigureForValidation(ctx context.Context, site *models
 	}
 	log.Printf("[ConfigureForValidation] Webroot directory created/verified: %s", webrootPath)
 
-	// Convert to template data
-	domains := make([]apacheDomainPortPair, 0, len(domainMappings))
+	// Convert to template data using map
+	domainsMap := make(map[string]DomainMappingPair)
 	for _, mapping := range domainMappings {
-		domains = append(domains, apacheDomainPortPair{
-			Domain: mapping.Domain,
-			Port:   mapping.Port,
-		})
+		domainsMap[mapping.Domain] = DomainMappingPair{
+			Port:     mapping.Port,
+			CertPath: "",
+			KeyPath:  "",
+		}
 	}
 
 	// Prepare validation template data (no SSL info yet)
 	data := apacheTemplateData{
-		Domains:    domains,
+		Domains:    domainsMap,
 		SSLEnabled: false,
 	}
 
@@ -192,13 +187,10 @@ func (a *ApacheManager) ConfigureForValidation(ctx context.Context, site *models
 	}
 
 	// Use primary domain for config filename
-	primaryDomain := site.Domain
-	if len(domainMappings) > 0 {
-		primaryDomain = domainMappings[0].Domain
-	}
+	primaryDomain := domainMappings[0].Domain
 
-	// Create config file
-	configPath := filepath.Join(a.configDir, fmt.Sprintf("%s.conf", primaryDomain))
+	// Create config file in Apache's sites-available directory (required for a2ensite)
+	configPath := filepath.Join("/etc/apache2/sites-available", fmt.Sprintf("%s.conf", primaryDomain))
 	log.Printf("[ConfigureForValidation] Writing config to: %s", configPath)
 	file, err := os.Create(configPath)
 	if err != nil {
@@ -220,6 +212,20 @@ func (a *ApacheManager) ConfigureForValidation(ctx context.Context, site *models
 		}
 	}
 
+	cmd = exec.CommandContext(ctx, "a2ensite", primaryDomain+".conf")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("[ConfigureForValidation] failed to enable apache site: %s", string(output))
+	}
+
+	log.Printf("[ConfigureForValidation] Apache site enabled: %s", primaryDomain+".conf")
+
+	cmd = exec.CommandContext(ctx, "systemctl", "reload", "apache2")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("[ConfigureForValidation] failed to reload apache after enabling site: %s", string(output))
+	}
+
+	log.Printf("[ConfigureForValidation] Apache reloaded successfully")
+
 	return nil
 }
 
@@ -227,21 +233,41 @@ func (a *ApacheManager) Configure(ctx context.Context, site *models.DeployReques
 	// Get domain-port mappings
 	domainMappings := getDomainMappings(site)
 
-	// Convert to template data
-	domains := make([]apacheDomainPortPair, 0, len(domainMappings))
+	// Use passed cert paths if provided, otherwise find them
+	primaryDomain := domainMappings[0].Domain
+	var primaryCertPath, primaryKeyPath string
+
+	if certPath != "" && keyPath != "" {
+		// Use the cert paths passed from the SSL manager
+		primaryCertPath = certPath
+		primaryKeyPath = keyPath
+	} else if site.SSLEnabled {
+		// Fallback: try to find certificates using FindCertificates (handles -0001 suffixes)
+		if cert, key, err := ssl.FindCertificates(primaryDomain); err == nil {
+			primaryCertPath = cert
+			primaryKeyPath = key
+		} else {
+			return fmt.Errorf("SSL enabled but certificate not found for %s: %w", primaryDomain, err)
+		}
+	}
+
+	log.Printf("apache cert and key: %s, %s", primaryCertPath, primaryKeyPath)
+
+	// Convert to template data with domain-specific cert paths using a map
+	// All domains use the same SAN certificate
+	domainsMap := make(map[string]DomainMappingPair)
 	for _, mapping := range domainMappings {
-		domains = append(domains, apacheDomainPortPair{
-			Domain: mapping.Domain,
-			Port:   mapping.Port,
-		})
+		domainsMap[mapping.Domain] = DomainMappingPair{
+			Port:     mapping.Port,
+			CertPath: primaryCertPath,
+			KeyPath:  primaryKeyPath,
+		}
 	}
 
 	// Prepare template data
 	data := apacheTemplateData{
-		Domains:    domains,
+		Domains:    domainsMap,
 		SSLEnabled: site.SSLEnabled,
-		CertPath:   certPath,
-		KeyPath:    keyPath,
 	}
 
 	// Parse template
@@ -250,14 +276,8 @@ func (a *ApacheManager) Configure(ctx context.Context, site *models.DeployReques
 		return fmt.Errorf("failed to parse apache template: %w", err)
 	}
 
-	// Use primary domain for config filename
-	primaryDomain := site.Domain
-	if len(domainMappings) > 0 {
-		primaryDomain = domainMappings[0].Domain
-	}
-
-	// Create config file
-	configPath := filepath.Join(a.configDir, fmt.Sprintf("%s.conf", primaryDomain))
+	// Create config file in Apache's sites-available directory (required for a2ensite)
+	configPath := filepath.Join("/etc/apache2/sites-available", fmt.Sprintf("%s.conf", primaryDomain))
 	file, err := os.Create(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to create apache config file: %w", err)
@@ -278,11 +298,25 @@ func (a *ApacheManager) Configure(ctx context.Context, site *models.DeployReques
 		}
 	}
 
+	cmd = exec.CommandContext(ctx, "a2ensite", primaryDomain+".conf")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to enable apache site: %s", string(output))
+	}
+
+	log.Printf("Apache site enabled: %s", primaryDomain+".conf")
+
+	cmd = exec.CommandContext(ctx, "systemctl", "reload", "apache2")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to reload apache after enabling site: %s", string(output))
+	}
+
+	log.Printf("Apache reloaded successfully")
+
 	return nil
 }
 
 func (a *ApacheManager) Remove(ctx context.Context, siteID uuid.UUID, domain string) error {
-	configPath := filepath.Join(a.configDir, fmt.Sprintf("%s.conf", domain))
+	configPath := filepath.Join("/etc/apache2/sites-available", fmt.Sprintf("%s.conf", domain))
 
 	if err := os.Remove(configPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove apache config: %w", err)

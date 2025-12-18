@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/BlueBeard63/archon-node/internal/config"
 	"github.com/BlueBeard63/archon-node/internal/models"
+	"github.com/BlueBeard63/archon-node/internal/ssl"
 )
 
 type NginxManager struct {
@@ -28,10 +30,10 @@ func NewNginxManager(cfg *config.ProxyConfig, sslCfg *config.SSLConfig) *NginxMa
 	}
 }
 
-const nginxConfigTemplate = `{{ range .Domains -}}
+const nginxConfigTemplate = `{{ range $domain, $mapping := .Domains -}}
 server {
     listen 80;
-    server_name {{ .Domain }};
+    server_name {{ $domain }};
 
     {{- if $.SSLEnabled }}
     # Redirect HTTP to HTTPS
@@ -40,11 +42,11 @@ server {
 
 server {
     listen 443 ssl http2;
-    server_name {{ .Domain }};
+    server_name {{ $domain }};
 
     # SSL Configuration
-    ssl_certificate {{ $.CertPath }};
-    ssl_certificate_key {{ $.KeyPath }};
+    ssl_certificate {{ $mapping.CertPath }};
+    ssl_certificate_key {{ $mapping.KeyPath }};
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
@@ -58,7 +60,7 @@ server {
 
     # Proxy configuration
     location / {
-        proxy_pass http://127.0.0.1:{{ .Port }};
+        proxy_pass http://127.0.0.1:{{ $mapping.Port }};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -76,27 +78,122 @@ server {
     }
 
     # Access and error logs
-    access_log /var/log/nginx/{{ .Domain }}_access.log;
-    error_log /var/log/nginx/{{ .Domain }}_error.log;
+    access_log /var/log/nginx/{{ $domain }}_access.log;
+    error_log /var/log/nginx/{{ $domain }}_error.log;
 }
 {{ end }}
 `
 
-type nginxDomainPortPair struct {
-	Domain string
-	Port   int
+type DomainMappingPair struct {
+	Port     int
+	CertPath string
+	KeyPath  string
 }
 
 type nginxTemplateData struct {
-	Domains    []nginxDomainPortPair
+	Domains    map[string]DomainMappingPair
 	SSLEnabled bool
-	CertPath   string
-	KeyPath    string
 }
 
-// ConfigureForValidation is a no-op for Nginx as it doesn't require pre-configuration for Let's Encrypt
+// ConfigureForValidation configures Nginx with temporary HTTP vhosts for Let's Encrypt validation
 func (n *NginxManager) ConfigureForValidation(ctx context.Context, site *models.DeployRequest) error {
-	// Nginx plugin doesn't require pre-configuration
+	// Skip if not using Let's Encrypt mode
+	if n.sslMode != "letsencrypt" {
+		return nil
+	}
+
+	// Skip if SSL is not enabled
+	if !site.SSLEnabled {
+		return nil
+	}
+
+	// Get domain-port mappings
+	domainMappings := getDomainMappings(site)
+	if len(domainMappings) == 0 {
+		return nil
+	}
+
+	// Create validation server block for port 80
+	const validationTemplate = `{{ range $domain, $mapping := .Domains -}}
+server {
+    listen 80;
+    server_name {{ $domain }};
+
+    # Allow certbot validation
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # Proxy other requests to the backend
+    location / {
+        proxy_pass http://127.0.0.1:{{ $mapping.Port }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+{{ end }}`
+
+	// Create certbot webroot directory
+	webrootPath := "/var/www/certbot"
+	if err := os.MkdirAll(webrootPath, 0755); err != nil {
+		return fmt.Errorf("failed to create certbot webroot directory: %w", err)
+	}
+
+	// Convert to template data
+	domainsMap := make(map[string]DomainMappingPair)
+	for _, mapping := range domainMappings {
+		domainsMap[mapping.Domain] = DomainMappingPair{
+			Port:     mapping.Port,
+			CertPath: "", // Not used in validation template
+			KeyPath:  "",
+		}
+	}
+
+	// Prepare template data
+	data := nginxTemplateData{
+		Domains:    domainsMap,
+		SSLEnabled: false, // Validation is HTTP only
+	}
+
+	// Parse template
+	tmpl, err := template.New("nginx-validation").Parse(validationTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse nginx validation template: %w", err)
+	}
+
+	// Use primary domain for config filename
+	// Use primary domain for config filename
+	primaryDomain := domainMappings[0].Domain
+
+	// ADD THIS: Remove existing SSL-enabled config file before creating validation config
+	// This prevents nginx from trying to load configs that reference non-existent certificates
+	existingConfigPath := filepath.Join(n.configDir, fmt.Sprintf("%s.conf", primaryDomain))
+	if err := os.Remove(existingConfigPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove existing nginx config: %w", err)
+	}
+
+	// Create validation config file
+	configPath := filepath.Join(n.configDir, fmt.Sprintf("%s-validation.conf", primaryDomain))
+	file, err := os.Create(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to create nginx validation config file: %w", err)
+	}
+	defer file.Close()
+
+	// Execute template
+	if err := tmpl.Execute(file, data); err != nil {
+		return fmt.Errorf("failed to execute nginx validation template: %w", err)
+	}
+
+	// Skip nginx -t test during validation since old config files might reference non-existent certificates
+	// Just reload nginx with the validation config
+	reloadCmd := exec.CommandContext(ctx, "sh", "-c", n.reloadCommand)
+	if output, err := reloadCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("nginx reload failed for validation: %s", string(output))
+	}
+
 	return nil
 }
 
@@ -104,21 +201,41 @@ func (n *NginxManager) Configure(ctx context.Context, site *models.DeployRequest
 	// Get domain-port mappings
 	domainMappings := getDomainMappings(site)
 
-	// Convert to template data
-	domains := make([]nginxDomainPortPair, 0, len(domainMappings))
+	// Use passed cert paths if provided, otherwise find them
+	primaryDomain := domainMappings[0].Domain
+	var primaryCertPath, primaryKeyPath string
+
+	if certPath != "" && keyPath != "" {
+		// Use the cert paths passed from the SSL manager
+		primaryCertPath = certPath
+		primaryKeyPath = keyPath
+	} else if site.SSLEnabled {
+		// Fallback: try to find certificates using FindCertificates (handles -0001 suffixes)
+		if cert, key, err := ssl.FindCertificates(primaryDomain); err == nil {
+			primaryCertPath = cert
+			primaryKeyPath = key
+		} else {
+			return fmt.Errorf("SSL enabled but certificate not found for %s: %w", primaryDomain, err)
+		}
+	}
+
+	log.Printf("nginx cert and key: %s, %s", primaryCertPath, primaryKeyPath)
+
+	// Convert to template data with domain-specific cert paths using a map
+	// All domains use the same certificate (SAN certificate)
+	domainsMap := make(map[string]DomainMappingPair)
 	for _, mapping := range domainMappings {
-		domains = append(domains, nginxDomainPortPair{
-			Domain: mapping.Domain,
-			Port:   mapping.Port,
-		})
+		domainsMap[mapping.Domain] = DomainMappingPair{
+			Port:     mapping.Port,
+			CertPath: primaryCertPath,
+			KeyPath:  primaryKeyPath,
+		}
 	}
 
 	// Prepare template data
 	data := nginxTemplateData{
-		Domains:    domains,
+		Domains:    domainsMap,
 		SSLEnabled: site.SSLEnabled,
-		CertPath:   certPath,
-		KeyPath:    keyPath,
 	}
 
 	// Parse template
@@ -127,13 +244,7 @@ func (n *NginxManager) Configure(ctx context.Context, site *models.DeployRequest
 		return fmt.Errorf("failed to parse nginx template: %w", err)
 	}
 
-	// Use primary domain for config filename
-	primaryDomain := site.Domain
-	if len(domainMappings) > 0 {
-		primaryDomain = domainMappings[0].Domain
-	}
-
-	// Create config file
+	// Create config file (use primary domain for filename)
 	configPath := filepath.Join(n.configDir, fmt.Sprintf("%s.conf", primaryDomain))
 	file, err := os.Create(configPath)
 	if err != nil {
@@ -144,6 +255,12 @@ func (n *NginxManager) Configure(ctx context.Context, site *models.DeployRequest
 	// Execute template
 	if err := tmpl.Execute(file, data); err != nil {
 		return fmt.Errorf("failed to execute nginx template: %w", err)
+	}
+
+	// Remove validation config file if it exists
+	validationConfigPath := filepath.Join(n.configDir, fmt.Sprintf("%s-validation.conf", primaryDomain))
+	if err := os.Remove(validationConfigPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove nginx validation config: %w", err)
 	}
 
 	// Test nginx configuration
@@ -206,17 +323,6 @@ func (n *NginxManager) GetInfo(ctx context.Context) (*models.TraefikInfo, error)
 }
 
 // getDomainMappings extracts domain-port mappings from a DeployRequest
-// Falls back to legacy Domain and Port if DomainMappings is empty
 func getDomainMappings(site *models.DeployRequest) []models.DomainMapping {
-	if len(site.DomainMappings) > 0 {
-		return site.DomainMappings
-	}
-
-	// Fallback: use legacy Domain and Port fields
-	return []models.DomainMapping{
-		{
-			Domain: site.Domain,
-			Port:   site.Port,
-		},
-	}
+	return site.DomainMappings
 }

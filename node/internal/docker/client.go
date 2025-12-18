@@ -113,23 +113,28 @@ func (c *Client) DeploySite(ctx context.Context, req *models.DeployRequest, data
 		envVars = append(envVars, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	// Prepare port bindings
+	// Prepare port bindings for all domain mappings
+	primaryDomainMapping := req.DomainMappings[0]
 	exposedPorts := nat.PortSet{}
 	portBindings := nat.PortMap{}
-	containerPort := nat.Port(fmt.Sprintf("%d/tcp", req.Port))
-	exposedPorts[containerPort] = struct{}{}
-	portBindings[containerPort] = []nat.PortBinding{
-		{
-			HostIP:   "0.0.0.0",
-			HostPort: fmt.Sprintf("%d", req.Port),
-		},
+
+	// Expose all ports from domain mappings
+	for _, mapping := range req.DomainMappings {
+		containerPort := nat.Port(fmt.Sprintf("%d/tcp", mapping.Port))
+		exposedPorts[containerPort] = struct{}{}
+		portBindings[containerPort] = []nat.PortBinding{
+			{
+				HostIP:   "0.0.0.0",
+				HostPort: fmt.Sprintf("%d", mapping.Port),
+			},
+		}
 	}
 
 	// Prepare labels
 	labels := map[string]string{
 		"archon.site.id":     req.ID.String(),
 		"archon.site.name":   req.Name,
-		"archon.site.domain": req.Domain,
+		"archon.site.domain": primaryDomainMapping.Domain,
 	}
 
 	// Add Traefik labels if provided
