@@ -54,26 +54,47 @@ func (t *TraefikManager) GetInfo(ctx context.Context) (*models.TraefikInfo, erro
 	}, nil
 }
 
-// GenerateTraefikLabels generates Traefik labels for a site
+// GenerateTraefikLabels generates Traefik labels for a site supporting multiple domains
+// Creates routers and services for each domain-port mapping
 func GenerateTraefikLabels(site *models.DeployRequest) map[string]string {
 	labels := map[string]string{
 		"traefik.enable": "true",
-		fmt.Sprintf("traefik.http.routers.%s.rule", site.Name):                      fmt.Sprintf("Host(`%s`)", site.Domain),
-		fmt.Sprintf("traefik.http.routers.%s.entrypoints", site.Name):               "web",
-		fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port", site.Name): fmt.Sprintf("%d", site.Port),
 	}
 
-	if site.SSLEnabled {
-		// Add HTTPS configuration
-		labels[fmt.Sprintf("traefik.http.routers.%s-secure.rule", site.Name)] = fmt.Sprintf("Host(`%s`)", site.Domain)
-		labels[fmt.Sprintf("traefik.http.routers.%s-secure.entrypoints", site.Name)] = "websecure"
-		labels[fmt.Sprintf("traefik.http.routers.%s-secure.tls", site.Name)] = "true"
-		labels[fmt.Sprintf("traefik.http.routers.%s-secure.tls.certresolver", site.Name)] = "letsencrypt"
+	// Get domain-port mappings
+	domainMappings := getDomainMappings(site)
 
-		// Add redirect middleware from HTTP to HTTPS
-		labels[fmt.Sprintf("traefik.http.routers.%s.middlewares", site.Name)] = "redirect-to-https"
-		labels["traefik.http.middlewares.redirect-to-https.redirectscheme.scheme"] = "https"
-		labels["traefik.http.middlewares.redirect-to-https.redirectscheme.permanent"] = "true"
+	// Process each domain-port mapping
+	for i, mapping := range domainMappings {
+		// Create a unique identifier for this router (use index to make it unique)
+		// Format: sitename-0, sitename-1, etc. or for first domain: sitename
+		var routerName string
+		if i == 0 {
+			routerName = site.Name
+		} else {
+			routerName = fmt.Sprintf("%s-%d", site.Name, i)
+		}
+
+		// HTTP router
+		labels[fmt.Sprintf("traefik.http.routers.%s.rule", routerName)] = fmt.Sprintf("Host(`%s`)", mapping.Domain)
+		labels[fmt.Sprintf("traefik.http.routers.%s.entrypoints", routerName)] = "web"
+
+		// Service for this router
+		labels[fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port", routerName)] = fmt.Sprintf("%d", mapping.Port)
+
+		// HTTPS configuration if SSL is enabled
+		if site.SSLEnabled {
+			secureRouterName := fmt.Sprintf("%s-secure", routerName)
+			labels[fmt.Sprintf("traefik.http.routers.%s.rule", secureRouterName)] = fmt.Sprintf("Host(`%s`)", mapping.Domain)
+			labels[fmt.Sprintf("traefik.http.routers.%s.entrypoints", secureRouterName)] = "websecure"
+			labels[fmt.Sprintf("traefik.http.routers.%s.tls", secureRouterName)] = "true"
+			labels[fmt.Sprintf("traefik.http.routers.%s.tls.certresolver", secureRouterName)] = "letsencrypt"
+
+			// Add redirect middleware from HTTP to HTTPS for this domain
+			labels[fmt.Sprintf("traefik.http.routers.%s.middlewares", routerName)] = fmt.Sprintf("redirect-%s", routerName)
+			labels[fmt.Sprintf("traefik.http.middlewares.redirect-%s.redirectscheme.scheme", routerName)] = "https"
+			labels[fmt.Sprintf("traefik.http.middlewares.redirect-%s.redirectscheme.permanent", routerName)] = "true"
+		}
 	}
 
 	return labels

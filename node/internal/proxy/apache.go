@@ -31,7 +31,8 @@ func NewApacheManager(cfg *config.ProxyConfig, sslCfg *config.SSLConfig) *Apache
 
 // Template for initial Apache configuration on port 80
 // The Apache plugin will modify this configuration to add ACME challenge handling
-const apacheValidationTemplate = `<VirtualHost *:80>
+const apacheValidationTemplate = `{{ range .Domains -}}
+<VirtualHost *:80>
     ServerName {{ .Domain }}
 
     # Proxy configuration
@@ -52,13 +53,15 @@ const apacheValidationTemplate = `<VirtualHost *:80>
     ErrorLog ${APACHE_LOG_DIR}/{{ .Domain }}_error.log
     CustomLog ${APACHE_LOG_DIR}/{{ .Domain }}_access.log combined
 </VirtualHost>
+{{ end }}
 `
 
 // Full Apache configuration template with SSL
-const apacheConfigTemplate = `<VirtualHost *:80>
+const apacheConfigTemplate = `{{ range .Domains -}}
+<VirtualHost *:80>
     ServerName {{ .Domain }}
 
-    {{- if .SSLEnabled }}
+    {{- if $.SSLEnabled }}
     # Redirect HTTP to HTTPS
     RewriteEngine On
     RewriteCond %{HTTPS} off
@@ -84,15 +87,15 @@ const apacheConfigTemplate = `<VirtualHost *:80>
     CustomLog ${APACHE_LOG_DIR}/{{ .Domain }}_access.log combined
 </VirtualHost>
 
-{{- if .SSLEnabled }}
+{{- if $.SSLEnabled }}
 
 <VirtualHost *:443>
     ServerName {{ .Domain }}
 
     # SSL Configuration
     SSLEngine on
-    SSLCertificateFile {{ .CertPath }}
-    SSLCertificateKeyFile {{ .KeyPath }}
+    SSLCertificateFile {{ $.CertPath }}
+    SSLCertificateKeyFile {{ $.KeyPath }}
     SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
     SSLCipherSuite HIGH:!aNULL:!MD5
     SSLHonorCipherOrder on
@@ -123,20 +126,25 @@ const apacheConfigTemplate = `<VirtualHost *:80>
 </VirtualHost>
 
 {{- end }}
+{{ end }}
 `
 
+type apacheDomainPortPair struct {
+	Domain string
+	Port   int
+}
+
 type apacheTemplateData struct {
-	Domain     string
-	Port       int
+	Domains    []apacheDomainPortPair
 	SSLEnabled bool
 	CertPath   string
 	KeyPath    string
 }
 
-// ConfigureForValidation configures Apache with a simple HTTP vhost for Let's Encrypt validation
+// ConfigureForValidation configures Apache with simple HTTP vhosts for Let's Encrypt validation
 // This is called before certificate generation to allow Certbot to validate domain ownership
 func (a *ApacheManager) ConfigureForValidation(ctx context.Context, site *models.DeployRequest) error {
-	log.Printf("[ConfigureForValidation] Called for domain: %s, SSLMode: %v, SSLEnabled: %v", site.Domain, a.sslMode, site.SSLEnabled)
+	log.Printf("[ConfigureForValidation] Called for site: %s, SSLMode: %v, SSLEnabled: %v", site.Name, a.sslMode, site.SSLEnabled)
 
 	// Only needed for Let's Encrypt mode
 	if a.sslMode != config.SSLModeLetsEncrypt {
@@ -150,7 +158,10 @@ func (a *ApacheManager) ConfigureForValidation(ctx context.Context, site *models
 		return nil
 	}
 
-	log.Printf("[ConfigureForValidation] Creating validation vhost for: %s", site.Domain)
+	// Get domain-port mappings
+	domainMappings := getDomainMappings(site)
+
+	log.Printf("[ConfigureForValidation] Creating validation vhosts for %d domains", len(domainMappings))
 
 	// Create webroot directory if it doesn't exist
 	webrootPath := "/var/www/letsencrypt"
@@ -159,10 +170,18 @@ func (a *ApacheManager) ConfigureForValidation(ctx context.Context, site *models
 	}
 	log.Printf("[ConfigureForValidation] Webroot directory created/verified: %s", webrootPath)
 
+	// Convert to template data
+	domains := make([]apacheDomainPortPair, 0, len(domainMappings))
+	for _, mapping := range domainMappings {
+		domains = append(domains, apacheDomainPortPair{
+			Domain: mapping.Domain,
+			Port:   mapping.Port,
+		})
+	}
+
 	// Prepare validation template data (no SSL info yet)
 	data := apacheTemplateData{
-		Domain:     site.Domain,
-		Port:       site.Port,
+		Domains:    domains,
 		SSLEnabled: false,
 	}
 
@@ -172,8 +191,14 @@ func (a *ApacheManager) ConfigureForValidation(ctx context.Context, site *models
 		return fmt.Errorf("failed to parse apache validation template: %w", err)
 	}
 
+	// Use primary domain for config filename
+	primaryDomain := site.Domain
+	if len(domainMappings) > 0 {
+		primaryDomain = domainMappings[0].Domain
+	}
+
 	// Create config file
-	configPath := filepath.Join(a.configDir, fmt.Sprintf("%s.conf", site.Domain))
+	configPath := filepath.Join(a.configDir, fmt.Sprintf("%s.conf", primaryDomain))
 	log.Printf("[ConfigureForValidation] Writing config to: %s", configPath)
 	file, err := os.Create(configPath)
 	if err != nil {
@@ -186,7 +211,7 @@ func (a *ApacheManager) ConfigureForValidation(ctx context.Context, site *models
 		return fmt.Errorf("failed to execute apache validation template: %w", err)
 	}
 
-	log.Printf("[ConfigureForValidation] Validation vhost configured successfully")
+	log.Printf("[ConfigureForValidation] Validation vhosts configured successfully")
 	cmd := exec.CommandContext(ctx, "apache2ctl", "configtest")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// Apache configtest returns error even on success sometimes, check output
@@ -199,10 +224,21 @@ func (a *ApacheManager) ConfigureForValidation(ctx context.Context, site *models
 }
 
 func (a *ApacheManager) Configure(ctx context.Context, site *models.DeployRequest, certPath, keyPath string) error {
+	// Get domain-port mappings
+	domainMappings := getDomainMappings(site)
+
+	// Convert to template data
+	domains := make([]apacheDomainPortPair, 0, len(domainMappings))
+	for _, mapping := range domainMappings {
+		domains = append(domains, apacheDomainPortPair{
+			Domain: mapping.Domain,
+			Port:   mapping.Port,
+		})
+	}
+
 	// Prepare template data
 	data := apacheTemplateData{
-		Domain:     site.Domain,
-		Port:       site.Port,
+		Domains:    domains,
 		SSLEnabled: site.SSLEnabled,
 		CertPath:   certPath,
 		KeyPath:    keyPath,
@@ -214,8 +250,14 @@ func (a *ApacheManager) Configure(ctx context.Context, site *models.DeployReques
 		return fmt.Errorf("failed to parse apache template: %w", err)
 	}
 
+	// Use primary domain for config filename
+	primaryDomain := site.Domain
+	if len(domainMappings) > 0 {
+		primaryDomain = domainMappings[0].Domain
+	}
+
 	// Create config file
-	configPath := filepath.Join(a.configDir, fmt.Sprintf("%s.conf", site.Domain))
+	configPath := filepath.Join(a.configDir, fmt.Sprintf("%s.conf", primaryDomain))
 	file, err := os.Create(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to create apache config file: %w", err)

@@ -83,8 +83,16 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 	var certPath, keyPath string
 	var err error
 	if req.SSLEnabled {
-		log.Printf("Setting up SSL certificate for domain: %s (email: %s)", req.Domain, req.SSLEmail)
+		// Get all domains to be configured
+		domainMappings := getDomainMappingsForHandler(&req)
+		domains := make([]string, 0, len(domainMappings))
+		for _, mapping := range domainMappings {
+			domains = append(domains, mapping.Domain)
+		}
+
+		log.Printf("Setting up SSL certificate for %d domains: %v (email: %s)", len(domains), domains, req.SSLEmail)
 		log.Printf("[DEBUG] ProxyManager type: %T", h.proxyManager)
+
 		// For Let's Encrypt, configure proxy first to serve validation challenges
 		log.Printf("Configuring reverse proxy for Let's Encrypt validation")
 		if err := h.proxyManager.ConfigureForValidation(ctx, &req); err != nil {
@@ -101,22 +109,25 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Wait for DNS propagation before attempting SSL certificate
-		log.Printf("Waiting for DNS propagation for: %s", req.Domain)
-		if err := waitForDNSPropagation(req.Domain, 60*time.Second); err != nil {
-			log.Printf("[ERROR] DNS propagation timeout for %s: %v", req.Domain, err)
-			respondError(w, http.StatusInternalServerError, "DNS propagation timeout for "+req.Domain+": "+err.Error())
-			return
+		// Wait for DNS propagation for all domains before attempting SSL certificate
+		for _, domain := range domains {
+			log.Printf("Waiting for DNS propagation for: %s", domain)
+			if err := waitForDNSPropagation(domain, 60*time.Second); err != nil {
+				log.Printf("[ERROR] DNS propagation timeout for %s: %v", domain, err)
+				respondError(w, http.StatusInternalServerError, "DNS propagation timeout for "+domain+": "+err.Error())
+				return
+			}
+			log.Printf("DNS propagation verified for: %s", domain)
 		}
-		log.Printf("DNS propagation verified for: %s", req.Domain)
 
-		certPath, keyPath, err = h.sslManager.EnsureCertificate(ctx, req.ID, req.Domain, req.SSLCert, req.SSLKey, req.SSLEmail)
+		// Request certificate for all domains (uses SAN if multiple domains)
+		certPath, keyPath, err = h.sslManager.EnsureCertificateMulti(ctx, req.ID, domains, req.SSLCert, req.SSLKey, req.SSLEmail)
 		if err != nil {
 			log.Printf("[ERROR] Failed to setup SSL: %v", err)
 			respondError(w, http.StatusInternalServerError, "Failed to setup SSL: "+err.Error())
 			return
 		}
-		log.Printf("SSL certificate obtained successfully: cert=%s, key=%s", certPath, keyPath)
+		log.Printf("SSL certificate obtained successfully for %d domains: cert=%s, key=%s", len(domains), certPath, keyPath)
 	}
 
 	// Deploy container
@@ -280,4 +291,20 @@ func (h *Handlers) HandleGetLogs(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"logs": logs,
 	})
+}
+
+// getDomainMappingsForHandler extracts domain-port mappings from a DeployRequest
+// Falls back to legacy Domain and Port if DomainMappings is empty
+func getDomainMappingsForHandler(site *models.DeployRequest) []models.DomainMapping {
+	if len(site.DomainMappings) > 0 {
+		return site.DomainMappings
+	}
+
+	// Fallback: use legacy Domain and Port fields
+	return []models.DomainMapping{
+		{
+			Domain: site.Domain,
+			Port:   site.Port,
+		},
+	}
 }

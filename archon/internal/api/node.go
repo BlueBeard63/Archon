@@ -47,14 +47,17 @@ type DeploymentProgressCallback func(msg DeploymentMessage)
 
 // DeploySite sends a deployment request to a node
 func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, domainName string) error {
-	// Build deploy request
+	// Build deploy request with domain mappings support
+	domainMappings := convertToNodeDomainMappings(site, domainName)
+
 	req := struct {
 		ID              uuid.UUID           `json:"id"`
 		Name            string              `json:"name"`
-		Domain          string              `json:"domain"`
+		Domain          string              `json:"domain"` // Legacy: kept for backward compatibility
 		Docker          Docker              `json:"docker"`
 		EnvironmentVars map[string]string   `json:"environment_vars"`
-		Port            int                 `json:"port"`
+		Port            int                 `json:"port"`                      // Legacy: kept for backward compatibility
+		DomainMappings  []DomainMapping     `json:"domain_mappings,omitempty"` // New: multiple domain-port mappings
 		SSLEnabled      bool                `json:"ssl_enabled"`
 		SSLEmail        string              `json:"ssl_email,omitempty"`
 		ConfigFiles     []models.ConfigFile `json:"config_files"`
@@ -62,7 +65,7 @@ func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, 
 	}{
 		ID:     site.ID,
 		Name:   site.Name,
-		Domain: domainName,
+		Domain: domainName, // Keep for backward compatibility
 		Docker: Docker{
 			Image: site.DockerImage,
 			Credentials: DockerCredentials{
@@ -71,7 +74,8 @@ func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, 
 			},
 		},
 		EnvironmentVars: site.EnvironmentVars,
-		Port:            site.Port,
+		Port:            site.Port, // Keep for backward compatibility
+		DomainMappings:  domainMappings,
 		SSLEnabled:      site.SSLEnabled,
 		SSLEmail:        site.SSLEmail,
 		ConfigFiles:     site.ConfigFiles,
@@ -117,14 +121,17 @@ func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *mode
 	}
 	defer conn.Close()
 
-	// Build deploy request
+	// Build deploy request with domain mappings support
+	domainMappings := convertToNodeDomainMappings(site, domainName)
+
 	req := struct {
 		ID              uuid.UUID           `json:"id"`
 		Name            string              `json:"name"`
-		Domain          string              `json:"domain"`
+		Domain          string              `json:"domain"` // Legacy: kept for backward compatibility
 		Docker          Docker              `json:"docker"`
 		EnvironmentVars map[string]string   `json:"environment_vars"`
-		Port            int                 `json:"port"`
+		Port            int                 `json:"port"`                      // Legacy: kept for backward compatibility
+		DomainMappings  []DomainMapping     `json:"domain_mappings,omitempty"` // New: multiple domain-port mappings
 		SSLEnabled      bool                `json:"ssl_enabled"`
 		SSLEmail        string              `json:"ssl_email,omitempty"`
 		ConfigFiles     []models.ConfigFile `json:"config_files"`
@@ -132,7 +139,7 @@ func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *mode
 	}{
 		ID:     site.ID,
 		Name:   site.Name,
-		Domain: domainName,
+		Domain: domainName, // Keep for backward compatibility
 		Docker: Docker{
 			Image: site.DockerImage,
 			Credentials: DockerCredentials{
@@ -141,7 +148,8 @@ func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *mode
 			},
 		},
 		EnvironmentVars: site.EnvironmentVars,
-		Port:            site.Port,
+		Port:            site.Port, // Keep for backward compatibility
+		DomainMappings:  domainMappings,
 		SSLEnabled:      site.SSLEnabled,
 		SSLEmail:        site.SSLEmail,
 		ConfigFiles:     site.ConfigFiles,
@@ -413,4 +421,54 @@ func (c *HTTPNodeClient) doRequest(method, url, apiKey string, body interface{})
 	}
 
 	return resp, nil
+}
+
+// DomainMapping represents a domain-to-port mapping for node API requests
+type DomainMapping struct {
+	Domain string `json:"domain"` // Full domain (e.g., "api.example.com")
+	Port   int    `json:"port"`   // Container port for this domain
+}
+
+// convertToNodeDomainMappings converts site domain mappings to node API format
+// This function extracts all domain-port pairs from the site's DomainMappings
+// In a real implementation, this would resolve domain UUIDs to actual domain names
+// For now, it creates a single mapping using the provided domainName
+func convertToNodeDomainMappings(site *models.Site, domainName string) []DomainMapping {
+	// If DomainMappings is populated, use those
+	if len(site.DomainMappings) > 0 {
+		// In a full implementation, you would need to:
+		// 1. Resolve each DomainMapping.DomainID to the actual domain name
+		// 2. Handle the optional Subdomain field
+		// For now, we create a mapping with the provided domainName
+		// This is a placeholder that needs domain lookup capability
+
+		// Create mappings with the primary domain provided
+		mappings := make([]DomainMapping, 0, len(site.DomainMappings))
+		for i, mapping := range site.DomainMappings {
+			// For the first mapping, use the provided domainName
+			if i == 0 {
+				mappings = append(mappings, DomainMapping{
+					Domain: domainName,
+					Port:   mapping.Port,
+				})
+			} else {
+				// For subsequent mappings, we would need domain resolution
+				// For now, skip them with a comment
+				// TODO: Resolve DomainID to actual domain name
+				// mappings = append(mappings, DomainMapping{
+				//     Domain: resolvedDomain,
+				//     Port:   mapping.Port,
+				// })
+			}
+		}
+		return mappings
+	}
+
+	// Fallback: use legacy Domain and Port fields
+	return []DomainMapping{
+		{
+			Domain: domainName,
+			Port:   site.Port,
+		},
+	}
 }

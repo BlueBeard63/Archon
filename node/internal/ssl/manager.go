@@ -29,20 +29,33 @@ func NewManager(sslCfg *config.SSLConfig, proxyType config.ProxyType) *Manager {
 	}
 }
 
-// EnsureCertificate ensures SSL certificate exists for a domain
+// EnsureCertificate ensures SSL certificate exists for one or more domains
 // Returns paths to cert and key files
 // If email is empty for Let's Encrypt mode, falls back to manager's default email
+// For multiple domains, uses a Subject Alternative Name (SAN) certificate
 func (m *Manager) EnsureCertificate(ctx context.Context, siteID uuid.UUID, domain string, certB64, keyB64, email string) (string, string, error) {
+	return m.EnsureCertificateMulti(ctx, siteID, []string{domain}, certB64, keyB64, email)
+}
+
+// EnsureCertificateMulti ensures SSL certificate exists for one or more domains
+// Returns paths to cert and key files
+// If email is empty for Let's Encrypt mode, falls back to manager's default email
+// For multiple domains, uses a Subject Alternative Name (SAN) certificate
+func (m *Manager) EnsureCertificateMulti(ctx context.Context, siteID uuid.UUID, domains []string, certB64, keyB64, email string) (string, string, error) {
+	if len(domains) == 0 {
+		return "", "", fmt.Errorf("at least one domain is required")
+	}
+
 	switch m.mode {
 	case config.SSLModeManual:
-		return m.handleManualCert(siteID, domain, certB64, keyB64)
+		return m.handleManualCert(siteID, domains[0], certB64, keyB64)
 	case config.SSLModeLetsEncrypt:
 		// Use provided email, or fall back to manager's default
 		emailToUse := email
 		if emailToUse == "" {
 			emailToUse = m.email
 		}
-		return m.handleLetsEncrypt(ctx, domain, emailToUse)
+		return m.handleLetsEncryptMulti(ctx, domains, emailToUse)
 	case config.SSLModeTraefikAuto:
 		// Traefik handles certificates automatically
 		return "", "", nil
@@ -150,6 +163,66 @@ func (m *Manager) handleLetsEncrypt(ctx context.Context, domain string, email st
 	// Certbot stores certificates in /etc/letsencrypt/live/<domain>/
 	certPath := filepath.Join("/etc/letsencrypt/live", domain, "fullchain.pem")
 	keyPath := filepath.Join("/etc/letsencrypt/live", domain, "privkey.pem")
+
+	// Verify files exist
+	if _, err := os.Stat(certPath); err != nil {
+		return "", "", fmt.Errorf("certificate not found at %s: %w", certPath, err)
+	}
+	if _, err := os.Stat(keyPath); err != nil {
+		return "", "", fmt.Errorf("key not found at %s: %w", keyPath, err)
+	}
+
+	return certPath, keyPath, nil
+}
+
+// handleLetsEncryptMulti obtains a certificate from Let's Encrypt for multiple domains using SAN (Subject Alternative Name)
+// Uses the primary domain as the certificate name, with other domains as SANs
+func (m *Manager) handleLetsEncryptMulti(ctx context.Context, domains []string, email string) (string, string, error) {
+	if email == "" {
+		return "", "", fmt.Errorf("email is required for Let's Encrypt")
+	}
+
+	if len(domains) == 0 {
+		return "", "", fmt.Errorf("at least one domain is required")
+	}
+
+	// Check if certbot is installed
+	if _, err := exec.LookPath("certbot"); err != nil {
+		return "", "", fmt.Errorf("certbot is not installed: %w", err)
+	}
+
+	// Build certbot command based on proxy type
+	// Use the first domain as the primary domain (certificate will be stored under this name)
+	primaryDomain := domains[0]
+	cmdArgs := []string{"certbot", "certonly", "--non-interactive", "--agree-tos", "--force-renewal", "--email", email}
+
+	// Add proxy-specific arguments
+	switch m.proxyType {
+	case config.ProxyTypeNginx:
+		cmdArgs = append(cmdArgs, "--nginx")
+	case config.ProxyTypeApache:
+		cmdArgs = append(cmdArgs, "--apache")
+	case config.ProxyTypeTraefik:
+		return "", "", fmt.Errorf("Traefik should use SSLModeTraefikAuto, not Let's Encrypt mode")
+	default:
+		// Fallback to standalone mode
+		cmdArgs = append(cmdArgs, "--standalone", "--http-01-port", "80")
+	}
+
+	// Add all domains (certbot will create a SAN certificate)
+	for _, domain := range domains {
+		cmdArgs = append(cmdArgs, "-d", domain)
+	}
+
+	cmd := exec.CommandContext(ctx, cmdArgs[0], cmdArgs[1:]...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", "", fmt.Errorf("certbot failed: %s", string(output))
+	}
+
+	// Certbot stores certificates in /etc/letsencrypt/live/<primary-domain>/
+	certPath := filepath.Join("/etc/letsencrypt/live", primaryDomain, "fullchain.pem")
+	keyPath := filepath.Join("/etc/letsencrypt/live", primaryDomain, "privkey.pem")
 
 	// Verify files exist
 	if _, err := os.Stat(certPath); err != nil {

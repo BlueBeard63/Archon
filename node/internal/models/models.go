@@ -20,16 +20,23 @@ const (
 type DeployRequest struct {
 	ID              uuid.UUID         `json:"id"`
 	Name            string            `json:"name"`
-	Domain          string            `json:"domain"`
+	Domain          string            `json:"domain"` // Legacy: single domain (kept for backward compatibility)
 	Docker          Docker            `json:"docker"`
 	EnvironmentVars map[string]string `json:"environment_vars"`
-	Port            int               `json:"port"`
+	Port            int               `json:"port"`                      // Legacy: single port (kept for backward compatibility)
+	DomainMappings  []DomainMapping   `json:"domain_mappings,omitempty"` // New: multiple domain-port mappings
 	SSLEnabled      bool              `json:"ssl_enabled"`
 	SSLEmail        string            `json:"ssl_email,omitempty"` // Email for Let's Encrypt
 	SSLCert         string            `json:"ssl_cert,omitempty"`  // Base64 encoded cert
 	SSLKey          string            `json:"ssl_key,omitempty"`   // Base64 encoded key
 	ConfigFiles     []ConfigFile      `json:"config_files"`
 	TraefikLabels   map[string]string `json:"traefik_labels,omitempty"`
+}
+
+// DomainMapping represents a domain-to-port mapping for multi-domain sites
+type DomainMapping struct {
+	Domain string `json:"domain"` // Full domain (e.g., "api.example.com")
+	Port   int    `json:"port"`   // Container port for this domain
 }
 
 type Docker struct {

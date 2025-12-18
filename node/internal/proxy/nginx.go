@@ -28,11 +28,12 @@ func NewNginxManager(cfg *config.ProxyConfig, sslCfg *config.SSLConfig) *NginxMa
 	}
 }
 
-const nginxConfigTemplate = `server {
+const nginxConfigTemplate = `{{ range .Domains -}}
+server {
     listen 80;
     server_name {{ .Domain }};
 
-    {{- if .SSLEnabled }}
+    {{- if $.SSLEnabled }}
     # Redirect HTTP to HTTPS
     return 301 https://$server_name$request_uri;
 }
@@ -42,8 +43,8 @@ server {
     server_name {{ .Domain }};
 
     # SSL Configuration
-    ssl_certificate {{ .CertPath }};
-    ssl_certificate_key {{ .KeyPath }};
+    ssl_certificate {{ $.CertPath }};
+    ssl_certificate_key {{ $.KeyPath }};
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
@@ -78,11 +79,16 @@ server {
     access_log /var/log/nginx/{{ .Domain }}_access.log;
     error_log /var/log/nginx/{{ .Domain }}_error.log;
 }
+{{ end }}
 `
 
+type nginxDomainPortPair struct {
+	Domain string
+	Port   int
+}
+
 type nginxTemplateData struct {
-	Domain     string
-	Port       int
+	Domains    []nginxDomainPortPair
 	SSLEnabled bool
 	CertPath   string
 	KeyPath    string
@@ -95,10 +101,21 @@ func (n *NginxManager) ConfigureForValidation(ctx context.Context, site *models.
 }
 
 func (n *NginxManager) Configure(ctx context.Context, site *models.DeployRequest, certPath, keyPath string) error {
+	// Get domain-port mappings
+	domainMappings := getDomainMappings(site)
+
+	// Convert to template data
+	domains := make([]nginxDomainPortPair, 0, len(domainMappings))
+	for _, mapping := range domainMappings {
+		domains = append(domains, nginxDomainPortPair{
+			Domain: mapping.Domain,
+			Port:   mapping.Port,
+		})
+	}
+
 	// Prepare template data
 	data := nginxTemplateData{
-		Domain:     site.Domain,
-		Port:       site.Port,
+		Domains:    domains,
 		SSLEnabled: site.SSLEnabled,
 		CertPath:   certPath,
 		KeyPath:    keyPath,
@@ -110,8 +127,14 @@ func (n *NginxManager) Configure(ctx context.Context, site *models.DeployRequest
 		return fmt.Errorf("failed to parse nginx template: %w", err)
 	}
 
+	// Use primary domain for config filename
+	primaryDomain := site.Domain
+	if len(domainMappings) > 0 {
+		primaryDomain = domainMappings[0].Domain
+	}
+
 	// Create config file
-	configPath := filepath.Join(n.configDir, fmt.Sprintf("%s.conf", site.Domain))
+	configPath := filepath.Join(n.configDir, fmt.Sprintf("%s.conf", primaryDomain))
 	file, err := os.Create(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to create nginx config file: %w", err)
@@ -180,4 +203,20 @@ func (n *NginxManager) GetInfo(ctx context.Context) (*models.TraefikInfo, error)
 		RoutersCount:  len(files),
 		ServicesCount: len(files),
 	}, nil
+}
+
+// getDomainMappings extracts domain-port mappings from a DeployRequest
+// Falls back to legacy Domain and Port if DomainMappings is empty
+func getDomainMappings(site *models.DeployRequest) []models.DomainMapping {
+	if len(site.DomainMappings) > 0 {
+		return site.DomainMappings
+	}
+
+	// Fallback: use legacy Domain and Port fields
+	return []models.DomainMapping{
+		{
+			Domain: site.Domain,
+			Port:   site.Port,
+		},
+	}
 }
