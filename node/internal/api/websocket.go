@@ -118,7 +118,22 @@ func (h *Handlers) HandleDeploySiteWebSocket(w http.ResponseWriter, r *http.Requ
 		sendError(conn, "Failed to deploy site: "+err.Error())
 		return
 	}
-	sendProgress(conn, "Docker container deployed successfully: "+deployResp.ContainerID[:12], "docker")
+
+	// Check if deployment failed (DeploySite returns error=nil even on failure)
+	if deployResp.Status == models.SiteStatusFailed {
+		sendError(conn, "Failed to deploy site: "+deployResp.Message)
+		return
+	}
+
+	// Safely display container ID
+	containerIDDisplay := deployResp.ContainerID
+	if len(containerIDDisplay) > 12 {
+		containerIDDisplay = containerIDDisplay[:12]
+	}
+	if containerIDDisplay == "" {
+		containerIDDisplay = "(unknown)"
+	}
+	sendProgress(conn, "Docker container deployed successfully: "+containerIDDisplay, "docker")
 
 	// Configure reverse proxy
 	sendProgress(conn, "Configuring reverse proxy for domain: "+req.Domain, "proxy")

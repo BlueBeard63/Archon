@@ -120,7 +120,7 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 			var buttons []string
 
 			// Only show deploy button for inactive sites
-			if site.Status == models.SiteStatusInactive || site.Status == "" {
+			if site.Status == models.SiteStatusInactive || site.Status == models.SiteStatusFailed || site.Status == "" {
 				deployBtn := components.Button{
 					ID:      "deploy-site-" + site.ID.String(),
 					Label:   "🚀",
@@ -257,9 +257,9 @@ func RenderSiteCreate(s *state.AppState) string {
 
 // RenderSiteCreateWithZones renders the site creation form with clickable fields
 func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
-	// Initialize form if needed (8 fields: basic + subdomain + SSL email + config file, ENV vars handled separately)
-	if len(s.FormFields) != 8 {
-		s.FormFields = []string{"", "", "", "", "", "8080", "", ""}
+	// Initialize form if needed (5 fields: name, node, docker image, ssl email, config file)
+	if len(s.FormFields) != 5 {
+		s.FormFields = []string{"", "", "", "", ""}
 		s.CurrentFieldIndex = 0
 	}
 
@@ -268,15 +268,17 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		s.EnvVarPairs = []state.EnvVarPair{{Key: "", Value: ""}}
 	}
 
+	// Initialize domain mappings with one empty pair if needed
+	if len(s.DomainMappingPairs) == 0 {
+		s.DomainMappingPairs = []state.DomainMappingPair{{Subdomain: "", DomainName: "", DomainID: "", Port: "8080"}}
+	}
+
 	title := titleStyle.Render("Create New Site")
 
 	labels := []string{
 		"Name:",
-		"Domain:",
-		"Subdomain (optional):",
 		"Node:",
 		"Docker Image:",
-		"Port:",
 		"SSL Email (for Let's Encrypt):",
 		"Config File Path (optional):",
 	}
@@ -299,14 +301,8 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		fieldLine := label + " " + displayValue + "\n"
 		fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
 
-		// Show dropdown options for Domain (index 1) and Node (index 3) when focused
+		// Show dropdown options for Node (index 1) when focused
 		if i == s.CurrentFieldIndex && i == 1 && s.DropdownOpen {
-			// Domain dropdown
-			dropdownOptions := renderDropdownOptions(s, s.Domains, s.DropdownIndex, func(d models.Domain) string {
-				return d.Name
-			})
-			fields += dropdownOptions + "\n"
-		} else if i == s.CurrentFieldIndex && i == 3 && s.DropdownOpen {
 			// Node dropdown
 			dropdownOptions := renderDropdownOptions(s, s.Nodes, s.DropdownIndex, func(n models.Node) string {
 				return n.Name
@@ -315,31 +311,36 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 	}
 
+	// Render domain mappings section
+	domainMappingsSection := renderDomainMappingsSection(s, zm)
+	fields += "\n" + domainMappingsSection
+
 	// Render ENV vars section
 	envSection := renderEnvVarsSection(s, zm)
 	fields += "\n" + envSection
 
 	helpText := "\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel"
-	if s.CurrentFieldIndex == 1 || s.CurrentFieldIndex == 3 {
-		// On dropdown fields (Domain=1, Node=3)
+	if s.CurrentFieldIndex == 1 {
+		// On Node dropdown field
 		if s.DropdownOpen {
 			helpText = "\nUp/Down to select, Enter/Tab to confirm, Esc to cancel"
 		} else {
 			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
 		}
-	} else if s.CurrentFieldIndex == 2 {
-		helpText = "\nOptional subdomain prefix (e.g., 'www', 'api', 'app'). Leave blank for root domain"
-	} else if s.CurrentFieldIndex == 6 {
+	} else if s.CurrentFieldIndex == 3 {
 		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
-	} else if s.CurrentFieldIndex == 7 {
+	} else if s.CurrentFieldIndex == 4 {
 		helpText = "\nEnter full path to config file (will be loaded when site is created)"
 	} else if s.CurrentFieldIndex == 100 {
 		// Special index for ENV vars
 		helpText = "\nType key/value, Tab to switch between key/value, +/- buttons to add/remove pairs"
+	} else if s.CurrentFieldIndex == 200 {
+		// Special index for domain mappings
+		helpText = "\nSelect subdomain/domain/port, Tab to switch fields, +/- buttons to add/remove mappings"
 	}
 
 	help := helpStyle.Render(helpText)
-	note := helpStyle.Render("Note: Domain/Node use dropdowns • Use + to add ENV vars, - to remove")
+	note := helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings/ENV vars, - to remove")
 
 	return title + "\n\n" + fields + "\n" + help + "\n" + note
 }
@@ -357,48 +358,57 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		return titleStyle.Render("Error: Site not found")
 	}
 
-	// Initialize form fields if needed (8 fields)
-	if len(s.FormFields) != 8 {
+	// Initialize form fields if needed (5 fields: name, node, docker image, ssl email, config file)
+	if len(s.FormFields) != 5 {
 		// Pre-populate with existing site data
-		s.FormFields = make([]string, 8)
+		s.FormFields = make([]string, 5)
 		s.FormFields[0] = site.Name
-		s.FormFields[4] = site.DockerImage
-		s.FormFields[6] = site.SSLEmail
-
-		// Get domain, subdomain, and port from first mapping
-		mappings := site.GetDomainMappings()
-		if len(mappings) > 0 {
-			// Find domain name
-			for _, d := range s.Domains {
-				if d.ID == mappings[0].DomainID {
-					s.FormFields[1] = d.Name
-					break
-				}
-			}
-			s.FormFields[2] = mappings[0].Subdomain // Subdomain field
-			s.FormFields[5] = fmt.Sprintf("%d", mappings[0].Port)
-		} else {
-			s.FormFields[1] = ""
-			s.FormFields[2] = ""
-			s.FormFields[5] = "8080"
-		}
+		s.FormFields[2] = site.DockerImage
+		s.FormFields[3] = site.SSLEmail
 
 		// Find node name
 		for _, n := range s.Nodes {
 			if n.ID == site.NodeID {
-				s.FormFields[3] = n.Name
+				s.FormFields[1] = n.Name
 				break
 			}
 		}
 
 		// Config file path (leave blank or show first config file name)
 		if len(site.ConfigFiles) > 0 {
-			s.FormFields[7] = site.ConfigFiles[0].Name
+			s.FormFields[4] = site.ConfigFiles[0].Name
 		} else {
-			s.FormFields[7] = ""
+			s.FormFields[4] = ""
 		}
 
 		s.CurrentFieldIndex = 0
+	}
+
+	// Initialize domain mapping pairs from existing site if needed
+	if len(s.DomainMappingPairs) == 0 {
+		mappings := site.GetDomainMappings()
+		if len(mappings) > 0 {
+			// Convert existing mappings to UI pairs
+			for _, mapping := range mappings {
+				// Find domain name
+				domainName := ""
+				for _, d := range s.Domains {
+					if d.ID == mapping.DomainID {
+						domainName = d.Name
+						break
+					}
+				}
+				s.DomainMappingPairs = append(s.DomainMappingPairs, state.DomainMappingPair{
+					Subdomain:  mapping.Subdomain,
+					DomainName: domainName,
+					DomainID:   mapping.DomainID.String(),
+					Port:       fmt.Sprintf("%d", mapping.Port),
+				})
+			}
+		} else {
+			// Start with one empty pair
+			s.DomainMappingPairs = []state.DomainMappingPair{{Subdomain: "", DomainName: "", DomainID: "", Port: "8080"}}
+		}
 	}
 
 	// Initialize ENV vars from existing site if needed
@@ -421,11 +431,8 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 
 	labels := []string{
 		"Name:",
-		"Domain:",
-		"Subdomain (optional):",
 		"Node:",
 		"Docker Image:",
-		"Port:",
 		"SSL Email (for Let's Encrypt):",
 		"Config File Path (optional):",
 	}
@@ -448,14 +455,8 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		fieldLine := label + " " + displayValue + "\n"
 		fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
 
-		// Show dropdown options for Domain (index 1) and Node (index 3) when focused
+		// Show dropdown options for Node (index 1) when focused
 		if i == s.CurrentFieldIndex && i == 1 && s.DropdownOpen {
-			// Domain dropdown
-			dropdownOptions := renderDropdownOptions(s, s.Domains, s.DropdownIndex, func(d models.Domain) string {
-				return d.Name
-			})
-			fields += dropdownOptions + "\n"
-		} else if i == s.CurrentFieldIndex && i == 3 && s.DropdownOpen {
 			// Node dropdown
 			dropdownOptions := renderDropdownOptions(s, s.Nodes, s.DropdownIndex, func(n models.Node) string {
 				return n.Name
@@ -464,31 +465,36 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 	}
 
+	// Render domain mappings section
+	domainMappingsSection := renderDomainMappingsSection(s, zm)
+	fields += "\n" + domainMappingsSection
+
 	// Render ENV vars section
 	envSection := renderEnvVarsSection(s, zm)
 	fields += "\n" + envSection
 
 	helpText := "\nTab/Shift+Tab to navigate, Enter to update, Esc to cancel"
-	if s.CurrentFieldIndex == 1 || s.CurrentFieldIndex == 3 {
-		// On dropdown fields (Domain=1, Node=3)
+	if s.CurrentFieldIndex == 1 {
+		// On Node dropdown field
 		if s.DropdownOpen {
 			helpText = "\nUp/Down to select, Enter/Tab to confirm, Esc to cancel"
 		} else {
 			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
 		}
-	} else if s.CurrentFieldIndex == 2 {
-		helpText = "\nOptional subdomain prefix (e.g., 'www', 'api', 'app'). Leave blank for root domain"
-	} else if s.CurrentFieldIndex == 6 {
+	} else if s.CurrentFieldIndex == 3 {
 		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
-	} else if s.CurrentFieldIndex == 7 {
+	} else if s.CurrentFieldIndex == 4 {
 		helpText = "\nEnter full path to config file (will be loaded when site is updated)"
 	} else if s.CurrentFieldIndex == 100 {
 		// Special index for ENV vars
 		helpText = "\nType key/value, Tab to switch between key/value, +/- buttons to add/remove pairs"
+	} else if s.CurrentFieldIndex == 200 {
+		// Special index for domain mappings
+		helpText = "\nSelect subdomain/domain/port, Tab to switch fields, +/- buttons to add/remove mappings"
 	}
 
 	help := helpStyle.Render(helpText)
-	note := helpStyle.Render("Note: Domain/Node use dropdowns • Use + to add ENV vars, - to remove")
+	note := helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings/ENV vars, - to remove")
 
 	return title + "\n\n" + fields + "\n" + help + "\n" + note
 }
@@ -559,6 +565,98 @@ func renderEnvVarsSection(s *state.AppState, zm *zone.Manager) string {
 			section.WriteString("\n")
 		} else {
 			section.WriteString(line + " " + addBtn + removeBtn + "\n")
+		}
+	}
+
+	return section.String()
+}
+
+// renderDomainMappingsSection renders the domain mappings section with +/- buttons
+func renderDomainMappingsSection(s *state.AppState, zm *zone.Manager) string {
+	var section strings.Builder
+
+	section.WriteString("Domain Mappings:\n")
+
+	for i, pair := range s.DomainMappingPairs {
+		// Determine if this pair is focused
+		isFocused := s.CurrentFieldIndex == 200 && s.DomainMappingFocusedPair == i
+
+		// Render subdomain field
+		subdomainValue := pair.Subdomain
+		if isFocused && s.DomainMappingFocusedField == 0 {
+			cursor := s.CursorPosition
+			if cursor < 0 {
+				cursor = 0
+			}
+			if cursor > len(subdomainValue) {
+				cursor = len(subdomainValue)
+			}
+			subdomainValue = subdomainValue[:cursor] + "_" + subdomainValue[cursor:]
+		}
+
+		// Render domain field
+		domainDisplay := pair.DomainName
+		if domainDisplay == "" {
+			domainDisplay = "(select)"
+		}
+		if isFocused && s.DomainMappingFocusedField == 1 {
+			domainDisplay = domainDisplay + " ▼"
+		}
+
+		// Render port field
+		portValue := pair.Port
+		if isFocused && s.DomainMappingFocusedField == 2 {
+			cursor := s.CursorPosition
+			if cursor < 0 {
+				cursor = 0
+			}
+			if cursor > len(portValue) {
+				cursor = len(portValue)
+			}
+			portValue = portValue[:cursor] + "_" + portValue[cursor:]
+		}
+
+		// Build the row
+		prefix := "  "
+		if isFocused {
+			prefix = "> "
+		}
+
+		line := fmt.Sprintf("%s[%d] Subdomain: %-15s Domain: %-25s Port: %-6s",
+			prefix, i+1, subdomainValue, domainDisplay, portValue)
+
+		// Add +/- buttons
+		addBtn := "+ "
+		removeBtn := "- "
+		if len(s.DomainMappingPairs) == 1 && i == 0 {
+			removeBtn = "  " // Can't remove the last one
+		}
+
+		if zm != nil {
+			addZoneID := fmt.Sprintf("domain-add:%d", i)
+			removeZoneID := fmt.Sprintf("domain-remove:%d", i)
+			subdomainZoneID := fmt.Sprintf("domain-subdomain:%d", i)
+			domainZoneID := fmt.Sprintf("domain-domain:%d", i)
+			portZoneID := fmt.Sprintf("domain-port:%d", i)
+
+			section.WriteString(zm.Mark(subdomainZoneID, prefix+fmt.Sprintf("[%d] Subdomain: %-15s ", i+1, subdomainValue)))
+			section.WriteString(zm.Mark(domainZoneID, fmt.Sprintf("Domain: %-25s ", domainDisplay)))
+			section.WriteString(zm.Mark(portZoneID, fmt.Sprintf("Port: %-6s ", portValue)))
+			section.WriteString(zm.Mark(addZoneID, addBtn))
+			if len(s.DomainMappingPairs) > 1 || i > 0 {
+				section.WriteString(zm.Mark(removeZoneID, removeBtn))
+			}
+			section.WriteString("\n")
+		} else {
+			section.WriteString(line + " " + addBtn + removeBtn + "\n")
+		}
+
+		// Show domain dropdown if focused on domain field
+		if isFocused && s.DomainMappingFocusedField == 1 && s.DropdownOpen {
+			dropdownOptions := renderDropdownOptions(s, s.Domains, s.DropdownIndex, func(d models.Domain) string {
+				return d.Name
+			})
+			section.WriteString(dropdownOptions + "\n")
 		}
 	}
 

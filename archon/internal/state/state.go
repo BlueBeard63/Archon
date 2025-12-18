@@ -77,6 +77,11 @@ type AppState struct {
 	EnvVarFocusedPair int         `json:"env_var_focused_pair"` // Which ENV pair is currently focused
 	EnvVarFocusedField int        `json:"env_var_focused_field"` // 0=key, 1=value
 
+	// Domain mappings for multi-domain sites
+	DomainMappingPairs       []DomainMappingPair `json:"domain_mapping_pairs"`       // Domain mapping entries
+	DomainMappingFocusedPair int                 `json:"domain_mapping_focused_pair"` // Which mapping is currently focused
+	DomainMappingFocusedField int               `json:"domain_mapping_focused_field"` // 0=subdomain, 1=domain, 2=port
+
 	// Async operations tracking
 	PendingOperations []AsyncOperation `json:"pending_operations"`
 	Notifications     []Notification   `json:"notifications"`
@@ -99,6 +104,14 @@ type AppState struct {
 type EnvVarPair struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
+}
+
+// DomainMappingPair represents a port-to-domain mapping entry in the UI
+type DomainMappingPair struct {
+	Subdomain  string `json:"subdomain"`   // Optional subdomain (e.g., "api", "www")
+	DomainName string `json:"domain_name"` // Domain name (for display in UI)
+	DomainID   string `json:"domain_id"`   // UUID as string
+	Port       string `json:"port"`        // Port number as string (for form input)
 }
 
 // AsyncOperation tracks background operations like deployments

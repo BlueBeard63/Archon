@@ -302,6 +302,66 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			// Check domain mapping clicks (for site creation and editing)
+			if m.state.CurrentScreen == state.ScreenSiteCreate || m.state.CurrentScreen == state.ScreenSiteEdit {
+				for i := 0; i < len(m.state.DomainMappingPairs); i++ {
+					// Add button
+					addZone := fmt.Sprintf("domain-add:%d", i)
+					if m.zone.Get(addZone).InBounds(msg) {
+						// Add new domain mapping pair after this one
+						newPair := state.DomainMappingPair{Subdomain: "", DomainName: "", DomainID: "", Port: "8080"}
+						m.state.DomainMappingPairs = append(m.state.DomainMappingPairs[:i+1], append([]state.DomainMappingPair{newPair}, m.state.DomainMappingPairs[i+1:]...)...)
+						m.state.CurrentFieldIndex = 200 // Domain mapping section
+						m.state.DomainMappingFocusedPair = i + 1
+						m.state.DomainMappingFocusedField = 0
+						m.state.CursorPosition = 0
+						return m, nil
+					}
+
+					// Remove button
+					removeZone := fmt.Sprintf("domain-remove:%d", i)
+					if m.zone.Get(removeZone).InBounds(msg) {
+						if len(m.state.DomainMappingPairs) > 1 {
+							m.state.DomainMappingPairs = append(m.state.DomainMappingPairs[:i], m.state.DomainMappingPairs[i+1:]...)
+							if m.state.DomainMappingFocusedPair >= len(m.state.DomainMappingPairs) {
+								m.state.DomainMappingFocusedPair = len(m.state.DomainMappingPairs) - 1
+							}
+						}
+						return m, nil
+					}
+
+					// Subdomain field
+					subdomainZone := fmt.Sprintf("domain-subdomain:%d", i)
+					if m.zone.Get(subdomainZone).InBounds(msg) {
+						m.state.CurrentFieldIndex = 200
+						m.state.DomainMappingFocusedPair = i
+						m.state.DomainMappingFocusedField = 0
+						m.state.CursorPosition = len(m.state.DomainMappingPairs[i].Subdomain)
+						return m, nil
+					}
+
+					// Domain field
+					domainZone := fmt.Sprintf("domain-domain:%d", i)
+					if m.zone.Get(domainZone).InBounds(msg) {
+						m.state.CurrentFieldIndex = 200
+						m.state.DomainMappingFocusedPair = i
+						m.state.DomainMappingFocusedField = 1
+						m.state.DropdownOpen = false
+						return m, nil
+					}
+
+					// Port field
+					portZone := fmt.Sprintf("domain-port:%d", i)
+					if m.zone.Get(portZone).InBounds(msg) {
+						m.state.CurrentFieldIndex = 200
+						m.state.DomainMappingFocusedPair = i
+						m.state.DomainMappingFocusedField = 2
+						m.state.CursorPosition = len(m.state.DomainMappingPairs[i].Port)
+						return m, nil
+					}
+				}
+			}
+
 			// Check ENV var clicks (for site creation and editing)
 			if m.state.CurrentScreen == state.ScreenSiteCreate || m.state.CurrentScreen == state.ScreenSiteEdit {
 				for i := 0; i < len(m.state.EnvVarPairs); i++ {

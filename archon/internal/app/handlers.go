@@ -267,8 +267,8 @@ func (m Model) handleSitesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleSiteCreateKeys handles keys on the site creation form
 func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Check if we're on a dropdown field (Domain=1, Node=3)
-	isDropdownField := m.state.CurrentFieldIndex == 1 || m.state.CurrentFieldIndex == 3
+	// Check if we're on a dropdown field (Node=1 in new layout)
+	isDropdownField := m.state.CurrentFieldIndex == 1
 
 	// Handle dropdown-specific keys when dropdown is open
 	if m.state.DropdownOpen && isDropdownField {
@@ -282,12 +282,7 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyDown:
 			// Navigate down in dropdown
-			maxIndex := 0
-			if m.state.CurrentFieldIndex == 1 {
-				maxIndex = len(m.state.Domains) - 1
-			} else if m.state.CurrentFieldIndex == 3 {
-				maxIndex = len(m.state.Nodes) - 1
-			}
+			maxIndex := len(m.state.Nodes) - 1
 			if m.state.DropdownIndex < maxIndex {
 				m.state.DropdownIndex++
 			}
@@ -295,16 +290,14 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyEnter, tea.KeyTab:
 			// Confirm selection and close dropdown
-			if m.state.CurrentFieldIndex == 1 && len(m.state.Domains) > 0 {
-				m.state.FormFields[1] = m.state.Domains[m.state.DropdownIndex].Name
-			} else if m.state.CurrentFieldIndex == 3 && len(m.state.Nodes) > 0 {
-				m.state.FormFields[3] = m.state.Nodes[m.state.DropdownIndex].Name
+			if len(m.state.Nodes) > 0 {
+				m.state.FormFields[1] = m.state.Nodes[m.state.DropdownIndex].Name
 			}
 			m.state.DropdownOpen = false
 
 			// If Tab, move to next field
 			if msg.Type == tea.KeyTab {
-				m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % len(m.state.FormFields)
+				m.state.CurrentFieldIndex++
 			}
 			return m, nil
 
@@ -318,6 +311,11 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.state.DropdownOpen = false
 			// Fall through to normal input handling
 		}
+	}
+
+	// Handle domain mapping input if focused on domain mapping section
+	if m.state.CurrentFieldIndex == 200 {
+		return m.handleDomainMappingInput(msg)
 	}
 
 	// Handle ENV var input if focused on ENV section
@@ -372,14 +370,14 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.state.DropdownOpen {
 			m.state.DropdownOpen = false
 		}
-		// Move to next field or ENV section
+		// Move to next field or domain mapping section
 		m.state.CurrentFieldIndex++
 		if m.state.CurrentFieldIndex >= len(m.state.FormFields) {
-			// Move to ENV section
-			m.state.CurrentFieldIndex = 100
-			m.state.EnvVarFocusedPair = 0
-			m.state.EnvVarFocusedField = 0
-			m.state.CursorPosition = len(m.state.EnvVarPairs[0].Key)
+			// Move to domain mapping section
+			m.state.CurrentFieldIndex = 200
+			m.state.DomainMappingFocusedPair = 0
+			m.state.DomainMappingFocusedField = 0
+			m.state.CursorPosition = len(m.state.DomainMappingPairs[0].Subdomain)
 		}
 		return m, nil
 
@@ -411,8 +409,8 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleSiteEditKeys handles keys on the site edit form
 func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Check if we're on a dropdown field (Domain=1, Node=3)
-	isDropdownField := m.state.CurrentFieldIndex == 1 || m.state.CurrentFieldIndex == 3
+	// Check if we're on a dropdown field (Node=1 in new layout)
+	isDropdownField := m.state.CurrentFieldIndex == 1
 
 	// Handle dropdown-specific keys when dropdown is open
 	if m.state.DropdownOpen && isDropdownField {
@@ -426,12 +424,7 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyDown:
 			// Navigate down in dropdown
-			maxIndex := 0
-			if m.state.CurrentFieldIndex == 1 {
-				maxIndex = len(m.state.Domains) - 1
-			} else if m.state.CurrentFieldIndex == 3 {
-				maxIndex = len(m.state.Nodes) - 1
-			}
+			maxIndex := len(m.state.Nodes) - 1
 			if m.state.DropdownIndex < maxIndex {
 				m.state.DropdownIndex++
 			}
@@ -439,16 +432,14 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyEnter, tea.KeyTab:
 			// Confirm selection and close dropdown
-			if m.state.CurrentFieldIndex == 1 && len(m.state.Domains) > 0 {
-				m.state.FormFields[1] = m.state.Domains[m.state.DropdownIndex].Name
-			} else if m.state.CurrentFieldIndex == 3 && len(m.state.Nodes) > 0 {
-				m.state.FormFields[3] = m.state.Nodes[m.state.DropdownIndex].Name
+			if len(m.state.Nodes) > 0 {
+				m.state.FormFields[1] = m.state.Nodes[m.state.DropdownIndex].Name
 			}
 			m.state.DropdownOpen = false
 
 			// If Tab, move to next field
 			if msg.Type == tea.KeyTab {
-				m.state.CurrentFieldIndex = (m.state.CurrentFieldIndex + 1) % len(m.state.FormFields)
+				m.state.CurrentFieldIndex++
 			}
 			return m, nil
 
@@ -462,6 +453,11 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.state.DropdownOpen = false
 			// Fall through to normal input handling
 		}
+	}
+
+	// Handle domain mapping input if focused on domain mapping section
+	if m.state.CurrentFieldIndex == 200 {
+		return m.handleDomainMappingInput(msg)
 	}
 
 	// Handle ENV var input if focused on ENV section
@@ -516,14 +512,14 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.state.DropdownOpen {
 			m.state.DropdownOpen = false
 		}
-		// Move to next field or ENV section
+		// Move to next field or domain mapping section
 		m.state.CurrentFieldIndex++
 		if m.state.CurrentFieldIndex >= len(m.state.FormFields) {
-			// Move to ENV section
-			m.state.CurrentFieldIndex = 100
-			m.state.EnvVarFocusedPair = 0
-			m.state.EnvVarFocusedField = 0
-			m.state.CursorPosition = len(m.state.EnvVarPairs[0].Key)
+			// Move to domain mapping section
+			m.state.CurrentFieldIndex = 200
+			m.state.DomainMappingFocusedPair = 0
+			m.state.DomainMappingFocusedField = 0
+			m.state.CursorPosition = len(m.state.DomainMappingPairs[0].Subdomain)
 		}
 		return m, nil
 
@@ -548,6 +544,200 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		// Otherwise submit form
 		return m.handleSiteEditSubmit()
+	}
+
+	return m, nil
+}
+
+// handleDomainMappingInput handles keyboard input for domain mapping fields
+func (m Model) handleDomainMappingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if len(m.state.DomainMappingPairs) == 0 {
+		return m, nil
+	}
+
+	pairIdx := m.state.DomainMappingFocusedPair
+	if pairIdx >= len(m.state.DomainMappingPairs) {
+		pairIdx = 0
+		m.state.DomainMappingFocusedPair = 0
+	}
+
+	// Handle dropdown for domain field (field 1)
+	if m.state.DomainMappingFocusedField == 1 && m.state.DropdownOpen {
+		switch msg.Type {
+		case tea.KeyUp:
+			if m.state.DropdownIndex > 0 {
+				m.state.DropdownIndex--
+			}
+			return m, nil
+		case tea.KeyDown:
+			if m.state.DropdownIndex < len(m.state.Domains)-1 {
+				m.state.DropdownIndex++
+			}
+			return m, nil
+		case tea.KeyEnter, tea.KeyTab:
+			// Select domain
+			if m.state.DropdownIndex >= 0 && m.state.DropdownIndex < len(m.state.Domains) {
+				selectedDomain := m.state.Domains[m.state.DropdownIndex]
+				m.state.DomainMappingPairs[pairIdx].DomainName = selectedDomain.Name
+				m.state.DomainMappingPairs[pairIdx].DomainID = selectedDomain.ID.String()
+			}
+			m.state.DropdownOpen = false
+			if msg.Type == tea.KeyTab {
+				// Move to port field
+				m.state.DomainMappingFocusedField = 2
+				m.state.CursorPosition = len(m.state.DomainMappingPairs[pairIdx].Port)
+			}
+			return m, nil
+		case tea.KeyEsc:
+			m.state.DropdownOpen = false
+			return m, nil
+		}
+	}
+
+	switch msg.Type {
+	case tea.KeyTab:
+		// Switch between subdomain/domain/port, or move to next pair
+		if m.state.DomainMappingFocusedField == 0 {
+			// Move from subdomain to domain
+			m.state.DomainMappingFocusedField = 1
+			m.state.DropdownOpen = false
+		} else if m.state.DomainMappingFocusedField == 1 {
+			// Move from domain to port
+			m.state.DomainMappingFocusedField = 2
+			m.state.CursorPosition = len(m.state.DomainMappingPairs[pairIdx].Port)
+		} else {
+			// Move from port to next pair's subdomain, or to ENV section
+			if pairIdx < len(m.state.DomainMappingPairs)-1 {
+				m.state.DomainMappingFocusedPair++
+				m.state.DomainMappingFocusedField = 0
+				m.state.CursorPosition = len(m.state.DomainMappingPairs[m.state.DomainMappingFocusedPair].Subdomain)
+			} else {
+				// Done with domain mappings, move to ENV vars
+				m.state.CurrentFieldIndex = 100
+				m.state.EnvVarFocusedPair = 0
+				m.state.EnvVarFocusedField = 0
+				m.state.CursorPosition = len(m.state.EnvVarPairs[0].Key)
+			}
+		}
+		return m, nil
+
+	case tea.KeyEnter:
+		// Open domain dropdown when on domain field
+		if m.state.DomainMappingFocusedField == 1 && !m.state.DropdownOpen {
+			m.state.DropdownOpen = true
+			m.state.DropdownIndex = 0
+			return m, nil
+		}
+		// Submit form based on current screen
+		if m.state.CurrentScreen == state.ScreenSiteEdit {
+			return m.handleSiteEditSubmit()
+		}
+		return m.handleSiteCreateSubmit()
+
+	case tea.KeyDown:
+		// Open domain dropdown when on domain field
+		if m.state.DomainMappingFocusedField == 1 && !m.state.DropdownOpen {
+			m.state.DropdownOpen = true
+			m.state.DropdownIndex = 0
+			return m, nil
+		}
+		return m, nil
+
+	case tea.KeyEsc:
+		// Go back to main form
+		m.state.CurrentFieldIndex = len(m.state.FormFields) - 1
+		return m, nil
+
+	case tea.KeyLeft:
+		if m.state.CursorPosition > 0 {
+			m.state.CursorPosition--
+		}
+		return m, nil
+
+	case tea.KeyRight:
+		currentValue := ""
+		if m.state.DomainMappingFocusedField == 0 {
+			currentValue = m.state.DomainMappingPairs[pairIdx].Subdomain
+		} else if m.state.DomainMappingFocusedField == 2 {
+			currentValue = m.state.DomainMappingPairs[pairIdx].Port
+		}
+		if m.state.CursorPosition < len(currentValue) {
+			m.state.CursorPosition++
+		}
+		return m, nil
+
+	case tea.KeyHome:
+		m.state.CursorPosition = 0
+		return m, nil
+
+	case tea.KeyEnd:
+		if m.state.DomainMappingFocusedField == 0 {
+			m.state.CursorPosition = len(m.state.DomainMappingPairs[pairIdx].Subdomain)
+		} else if m.state.DomainMappingFocusedField == 2 {
+			m.state.CursorPosition = len(m.state.DomainMappingPairs[pairIdx].Port)
+		}
+		return m, nil
+
+	case tea.KeyBackspace:
+		cursor := m.state.CursorPosition
+		if cursor > 0 {
+			if m.state.DomainMappingFocusedField == 0 {
+				// Editing subdomain
+				value := m.state.DomainMappingPairs[pairIdx].Subdomain
+				m.state.DomainMappingPairs[pairIdx].Subdomain = value[:cursor-1] + value[cursor:]
+			} else if m.state.DomainMappingFocusedField == 2 {
+				// Editing port
+				value := m.state.DomainMappingPairs[pairIdx].Port
+				m.state.DomainMappingPairs[pairIdx].Port = value[:cursor-1] + value[cursor:]
+			}
+			m.state.CursorPosition--
+		}
+		return m, nil
+
+	case tea.KeyDelete:
+		cursor := m.state.CursorPosition
+		if m.state.DomainMappingFocusedField == 0 {
+			// Editing subdomain
+			value := m.state.DomainMappingPairs[pairIdx].Subdomain
+			if cursor < len(value) {
+				m.state.DomainMappingPairs[pairIdx].Subdomain = value[:cursor] + value[cursor+1:]
+			}
+		} else if m.state.DomainMappingFocusedField == 2 {
+			// Editing port
+			value := m.state.DomainMappingPairs[pairIdx].Port
+			if cursor < len(value) {
+				m.state.DomainMappingPairs[pairIdx].Port = value[:cursor] + value[cursor+1:]
+			}
+		}
+		return m, nil
+
+	case tea.KeySpace:
+		cursor := m.state.CursorPosition
+		if m.state.DomainMappingFocusedField == 0 {
+			// Editing subdomain
+			value := m.state.DomainMappingPairs[pairIdx].Subdomain
+			m.state.DomainMappingPairs[pairIdx].Subdomain = value[:cursor] + " " + value[cursor:]
+		} else if m.state.DomainMappingFocusedField == 2 {
+			// Editing port (spaces not typically allowed in ports, but handle anyway)
+			value := m.state.DomainMappingPairs[pairIdx].Port
+			m.state.DomainMappingPairs[pairIdx].Port = value[:cursor] + " " + value[cursor:]
+		}
+		m.state.CursorPosition++
+		return m, nil
+
+	case tea.KeyRunes:
+		cursor := m.state.CursorPosition
+		if m.state.DomainMappingFocusedField == 0 {
+			// Editing subdomain
+			value := m.state.DomainMappingPairs[pairIdx].Subdomain
+			m.state.DomainMappingPairs[pairIdx].Subdomain = value[:cursor] + string(msg.Runes) + value[cursor:]
+		} else if m.state.DomainMappingFocusedField == 2 {
+			// Editing port
+			value := m.state.DomainMappingPairs[pairIdx].Port
+			m.state.DomainMappingPairs[pairIdx].Port = value[:cursor] + string(msg.Runes) + value[cursor:]
+		}
+		m.state.CursorPosition++
+		return m, nil
 	}
 
 	return m, nil
@@ -1551,68 +1741,92 @@ func (m Model) handleFormSubmit() (tea.Model, tea.Cmd) {
 
 // handleSiteCreateSubmit processes site creation form submission
 func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
-	// Validate required fields: Name(0), Domain(1), Node(3), Docker Image(4), Port(5)
-	// Subdomain(2) is optional
-	requiredFields := []int{0, 1, 3, 4, 5}
+	// Validate required fields: Name(0), Node(1), Docker Image(2)
+	// SSL Email(3) and Config File(4) are optional
+	requiredFields := []int{0, 1, 2}
+	fieldNames := map[int]string{0: "Name", 1: "Node", 2: "Docker Image"}
 	for _, i := range requiredFields {
 		if m.state.FormFields[i] == "" {
-			m.state.AddNotification("Required fields (Name, Domain, Node, Image, Port) must be filled", "error")
+			m.state.AddNotification("Required field "+fieldNames[i]+" must be filled", "error")
 			return m, nil
 		}
 	}
 
-	// Parse port (now at index 5)
-	var port int
-	_, err := fmt.Sscanf(m.state.FormFields[5], "%d", &port)
-	if err != nil || port < 1 || port > 65535 {
-		m.state.AddNotification("Invalid port number", "error")
-		return m, nil
-	}
-
-	// Find domain by name (index 1)
-	var domainID uuid.UUID
-	domainFound := false
-	for _, domain := range m.state.Domains {
-		if domain.Name == m.state.FormFields[1] {
-			domainID = domain.ID
-			domainFound = true
-			break
-		}
-	}
-	if !domainFound {
-		m.state.AddNotification("Domain not found: "+m.state.FormFields[1], "error")
-		return m, nil
-	}
-
-	// Get subdomain (index 2, optional)
-	subdomain := strings.TrimSpace(m.state.FormFields[2])
-
-	// Find node by name (index 3)
+	// Find node by name (index 1)
 	var nodeID uuid.UUID
 	nodeFound := false
 	for _, node := range m.state.Nodes {
-		if node.Name == m.state.FormFields[3] {
+		if node.Name == m.state.FormFields[1] {
 			nodeID = node.ID
 			nodeFound = true
 			break
 		}
 	}
 	if !nodeFound {
-		m.state.AddNotification("Node not found: "+m.state.FormFields[3], "error")
+		m.state.AddNotification("Node not found: "+m.state.FormFields[1], "error")
 		return m, nil
 	}
 
-	// Create new site (Docker Image is index 4)
-	site := models.NewSite(m.state.FormFields[0], domainID, nodeID, m.state.FormFields[4], port)
+	// Parse and validate domain mappings
+	var domainMappings []models.DomainMapping
+	var firstDomainID uuid.UUID
+	var firstPort int
 
-	// Update domain mapping with subdomain
-	if len(site.DomainMappings) > 0 {
-		site.DomainMappings[0].Subdomain = subdomain
+	for i, pair := range m.state.DomainMappingPairs {
+		// Skip empty mappings
+		if pair.DomainName == "" && pair.Port == "" {
+			continue
+		}
+
+		// Validate domain is selected
+		if pair.DomainName == "" || pair.DomainID == "" {
+			m.state.AddNotification(fmt.Sprintf("Domain mapping %d: domain must be selected", i+1), "error")
+			return m, nil
+		}
+
+		// Parse port
+		var port int
+		_, err := fmt.Sscanf(pair.Port, "%d", &port)
+		if err != nil || port < 1 || port > 65535 {
+			m.state.AddNotification(fmt.Sprintf("Domain mapping %d: invalid port number", i+1), "error")
+			return m, nil
+		}
+
+		// Parse domain ID
+		domainID, err := uuid.Parse(pair.DomainID)
+		if err != nil {
+			m.state.AddNotification(fmt.Sprintf("Domain mapping %d: invalid domain ID", i+1), "error")
+			return m, nil
+		}
+
+		// Store first domain and port for backwards compatibility
+		if len(domainMappings) == 0 {
+			firstDomainID = domainID
+			firstPort = port
+		}
+
+		domainMappings = append(domainMappings, models.DomainMapping{
+			DomainID:  domainID,
+			Subdomain: strings.TrimSpace(pair.Subdomain),
+			Port:      port,
+		})
 	}
 
-	// Set SSL email (field 6) if provided
-	if m.state.FormFields[6] != "" {
-		site.SSLEmail = strings.TrimSpace(m.state.FormFields[6])
+	// Validate at least one domain mapping
+	if len(domainMappings) == 0 {
+		m.state.AddNotification("At least one domain mapping is required", "error")
+		return m, nil
+	}
+
+	// Create new site using first domain/port for backwards compatibility
+	site := models.NewSite(m.state.FormFields[0], firstDomainID, nodeID, m.state.FormFields[2], firstPort)
+
+	// Replace default domain mapping with all mappings from the form
+	site.DomainMappings = domainMappings
+
+	// Set SSL email (field 3) if provided
+	if m.state.FormFields[3] != "" {
+		site.SSLEmail = strings.TrimSpace(m.state.FormFields[3])
 	}
 
 	// Parse environment variables from EnvVarPairs
@@ -1624,9 +1838,9 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Load config file (field 7) if provided
-	if m.state.FormFields[7] != "" {
-		configPath := strings.TrimSpace(m.state.FormFields[7])
+	// Load config file (field 4) if provided
+	if m.state.FormFields[4] != "" {
+		configPath := strings.TrimSpace(m.state.FormFields[4])
 		content, err := os.ReadFile(configPath)
 		if err != nil {
 			m.state.AddNotification("Failed to read config file: "+err.Error(), "warning")
@@ -1674,74 +1888,94 @@ func (m Model) handleSiteEditSubmit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Validate required fields: Name(0), Domain(1), Node(3), Docker Image(4), Port(5)
-	// Subdomain(2) is optional
-	requiredFields := []int{0, 1, 3, 4, 5}
+	// Validate required fields: Name(0), Node(1), Docker Image(2)
+	// SSL Email(3) and Config File(4) are optional
+	requiredFields := []int{0, 1, 2}
+	fieldNames := map[int]string{0: "Name", 1: "Node", 2: "Docker Image"}
 	for _, i := range requiredFields {
 		if m.state.FormFields[i] == "" {
-			m.state.AddNotification("Required fields (Name, Domain, Node, Image, Port) must be filled", "error")
+			m.state.AddNotification("Required field "+fieldNames[i]+" must be filled", "error")
 			return m, nil
 		}
 	}
 
-	// Parse port (now at index 5)
-	var port int
-	_, err := fmt.Sscanf(m.state.FormFields[5], "%d", &port)
-	if err != nil || port < 1 || port > 65535 {
-		m.state.AddNotification("Invalid port number", "error")
-		return m, nil
-	}
-
-	// Find domain by name (index 1)
-	var domainID uuid.UUID
-	domainFound := false
-	for _, domain := range m.state.Domains {
-		if domain.Name == m.state.FormFields[1] {
-			domainID = domain.ID
-			domainFound = true
-			break
-		}
-	}
-	if !domainFound {
-		m.state.AddNotification("Domain not found: "+m.state.FormFields[1], "error")
-		return m, nil
-	}
-
-	// Get subdomain (index 2, optional)
-	subdomain := strings.TrimSpace(m.state.FormFields[2])
-
-	// Find node by name (index 3)
+	// Find node by name (index 1)
 	var nodeID uuid.UUID
 	nodeFound := false
 	for _, node := range m.state.Nodes {
-		if node.Name == m.state.FormFields[3] {
+		if node.Name == m.state.FormFields[1] {
 			nodeID = node.ID
 			nodeFound = true
 			break
 		}
 	}
 	if !nodeFound {
-		m.state.AddNotification("Node not found: "+m.state.FormFields[3], "error")
+		m.state.AddNotification("Node not found: "+m.state.FormFields[1], "error")
+		return m, nil
+	}
+
+	// Parse and validate domain mappings
+	var domainMappings []models.DomainMapping
+	var firstDomainID uuid.UUID
+	var firstPort int
+
+	for i, pair := range m.state.DomainMappingPairs {
+		// Skip empty mappings
+		if pair.DomainName == "" && pair.Port == "" {
+			continue
+		}
+
+		// Validate domain is selected
+		if pair.DomainName == "" || pair.DomainID == "" {
+			m.state.AddNotification(fmt.Sprintf("Domain mapping %d: domain must be selected", i+1), "error")
+			return m, nil
+		}
+
+		// Parse port
+		var port int
+		_, err := fmt.Sscanf(pair.Port, "%d", &port)
+		if err != nil || port < 1 || port > 65535 {
+			m.state.AddNotification(fmt.Sprintf("Domain mapping %d: invalid port number", i+1), "error")
+			return m, nil
+		}
+
+		// Parse domain ID
+		domainID, err := uuid.Parse(pair.DomainID)
+		if err != nil {
+			m.state.AddNotification(fmt.Sprintf("Domain mapping %d: invalid domain ID", i+1), "error")
+			return m, nil
+		}
+
+		// Store first domain and port for backwards compatibility
+		if len(domainMappings) == 0 {
+			firstDomainID = domainID
+			firstPort = port
+		}
+
+		domainMappings = append(domainMappings, models.DomainMapping{
+			DomainID:  domainID,
+			Subdomain: strings.TrimSpace(pair.Subdomain),
+			Port:      port,
+		})
+	}
+
+	// Validate at least one domain mapping
+	if len(domainMappings) == 0 {
+		m.state.AddNotification("At least one domain mapping is required", "error")
 		return m, nil
 	}
 
 	// Update site fields
 	oldName := m.state.Sites[siteIndex].Name
 	m.state.Sites[siteIndex].Name = m.state.FormFields[0]
-	m.state.Sites[siteIndex].DomainID = domainID
+	m.state.Sites[siteIndex].DomainID = firstDomainID
 	m.state.Sites[siteIndex].NodeID = nodeID
-	m.state.Sites[siteIndex].DockerImage = m.state.FormFields[4] // Docker Image at index 4
-	m.state.Sites[siteIndex].Port = port
-	m.state.Sites[siteIndex].SSLEmail = strings.TrimSpace(m.state.FormFields[6]) // SSL Email at index 6
+	m.state.Sites[siteIndex].DockerImage = m.state.FormFields[2] // Docker Image at index 2
+	m.state.Sites[siteIndex].Port = firstPort
+	m.state.Sites[siteIndex].SSLEmail = strings.TrimSpace(m.state.FormFields[3]) // SSL Email at index 3
 
-	// Update domain mappings with subdomain
-	m.state.Sites[siteIndex].DomainMappings = []models.DomainMapping{
-		{
-			DomainID:  domainID,
-			Subdomain: subdomain,
-			Port:      port,
-		},
-	}
+	// Update domain mappings with all mappings from form
+	m.state.Sites[siteIndex].DomainMappings = domainMappings
 
 	// Update environment variables from EnvVarPairs
 	m.state.Sites[siteIndex].EnvironmentVars = make(map[string]string)
@@ -1753,9 +1987,9 @@ func (m Model) handleSiteEditSubmit() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Load config file (field 7) if provided
-	if m.state.FormFields[7] != "" {
-		configPath := strings.TrimSpace(m.state.FormFields[7])
+	// Load config file (field 4) if provided
+	if m.state.FormFields[4] != "" {
+		configPath := strings.TrimSpace(m.state.FormFields[4])
 		content, err := os.ReadFile(configPath)
 		if err != nil {
 			m.state.AddNotification("Failed to read config file: "+err.Error(), "warning")

@@ -2,6 +2,8 @@ package docker
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/google/uuid"
@@ -43,6 +46,64 @@ func NewClient(host, networkName string) (*Client, error) {
 		cli:         cli,
 		networkName: networkName,
 	}, nil
+}
+
+// getAuthConfig reads Docker authentication from config.json
+func getAuthConfig(imageName string) (string, error) {
+	// Try to read Docker config from home directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", nil // Return empty auth if can't get home dir
+	}
+
+	configPath := filepath.Join(homeDir, ".docker", "config.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", nil // Return empty auth if config doesn't exist
+	}
+
+	var config struct {
+		Auths map[string]struct {
+			Auth string `json:"auth"`
+		} `json:"auths"`
+	}
+
+	if err := json.Unmarshal(data, &config); err != nil {
+		return "", nil // Return empty auth if can't parse
+	}
+
+	// Extract registry from image name (e.g., "docker.io" from "docker.io/user/image")
+	registryURL := "https://index.docker.io/v1/" // Default to Docker Hub
+	if strings.Contains(imageName, "/") {
+		parts := strings.Split(imageName, "/")
+		if strings.Contains(parts[0], ".") {
+			// Custom registry
+			registryURL = parts[0]
+		}
+	}
+
+	// Try to find auth for this registry
+	for reg, auth := range config.Auths {
+		if strings.Contains(reg, registryURL) || reg == registryURL {
+			// Create auth config JSON
+			authConfig := registry.AuthConfig{
+				Auth: auth.Auth,
+			}
+			encoded, _ := json.Marshal(authConfig)
+			return base64.URLEncoding.EncodeToString(encoded), nil
+		}
+	}
+
+	// If no specific auth found, try the default Docker Hub entry
+	if auth, ok := config.Auths["https://index.docker.io/v1/"]; ok {
+		authConfig := registry.AuthConfig{
+			Auth: auth.Auth,
+		}
+		encoded, _ := json.Marshal(authConfig)
+		return base64.URLEncoding.EncodeToString(encoded), nil
+	}
+
+	return "", nil // No auth found
 }
 
 // EnsureNetwork creates the archon network if it doesn't exist
@@ -77,8 +138,13 @@ func (c *Client) DeploySite(ctx context.Context, req *models.DeployRequest, data
 		return nil, err
 	}
 
+	// Get authentication for pulling image
+	authStr, _ := getAuthConfig(req.DockerImage)
+
 	// Pull image
-	reader, err := c.cli.ImagePull(ctx, req.DockerImage, image.PullOptions{})
+	reader, err := c.cli.ImagePull(ctx, req.DockerImage, image.PullOptions{
+		RegistryAuth: authStr,
+	})
 	if err != nil {
 		return &models.DeployResponse{
 			SiteID:  req.ID,
