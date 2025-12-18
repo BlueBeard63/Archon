@@ -156,7 +156,7 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 			}
 
 			// Add control button if status is not inactive
-			if site.Status != models.SiteStatusInactive && site.Status != "" {
+			if (site.Status != models.SiteStatusInactive && site.Status != models.SiteStatusFailed) && site.Status != "" {
 				if zm != nil {
 					buttons = append(buttons, controlBtn.RenderWithZone(zm))
 				} else {
