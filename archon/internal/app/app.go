@@ -46,7 +46,6 @@ func NewModel(configPath string) (*Model, error) {
 	appState.Nodes = cfg.Nodes
 	appState.ConfigPath = configPath
 	appState.AutoSave = cfg.Settings.AutoSave
-	appState.CloudflareZoneID = cfg.Settings.CloudflareZoneID
 	appState.CloudflareAPIToken = cfg.Settings.CloudflareAPIToken
 	appState.Route53AccessKey = cfg.Settings.Route53AccessKey
 	appState.Route53SecretKey = cfg.Settings.Route53SecretKey
@@ -160,12 +159,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Check for row action buttons (deploy/stop/restart/edit/delete/view)
 			// Sites
 			for i, site := range m.state.Sites {
+				setupDnsID := "button:setup-dns-" + site.ID.String()
 				deployID := "button:deploy-site-" + site.ID.String()
 				stopID := "button:stop-site-" + site.ID.String()
 				restartID := "button:restart-site-" + site.ID.String()
 				editID := "button:edit-site-" + site.ID.String()
 				deleteID := "button:delete-site-" + site.ID.String()
 
+				if m.zone.Get(setupDnsID).InBounds(msg) {
+					// Sync table cursor
+					m.state.SitesListIndex = i
+					if m.state.SitesTable != nil {
+						m.state.SitesTable.SetCursor(i)
+					}
+
+					// Setup DNS for site
+					return m, m.spawnSetupDNS(site.ID)
+				}
 				if m.zone.Get(deployID).InBounds(msg) {
 					// Sync table cursor
 					m.state.SitesListIndex = i
@@ -474,6 +484,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case DNSSetupResultMsg:
+		// Handle DNS setup result
+		if msg.Error != nil {
+			m.state.AddNotification("DNS setup failed: "+msg.Error.Error(), "error")
+		} else {
+			m.state.AddNotification(msg.Message, "success")
+		}
+		return m, nil
+
 	case SiteOperationResultMsg:
 		// Handle stop/restart operation results
 		site := m.state.GetSiteByID(msg.SiteID)
@@ -630,38 +649,49 @@ func (m Model) spawnDeploySite(siteID uuid.UUID) tea.Cmd {
 			}
 		}
 
-		// Get subdomain from first domain mapping
-		var subdomain string
+		// Get all domain mappings
 		mappings := site.GetDomainMappings()
-		if len(mappings) > 0 {
-			subdomain = mappings[0].Subdomain
+		if len(mappings) == 0 {
+			return SiteDeployedMsg{
+				SiteID: siteID,
+				Error:  fmt.Errorf("site has no domain mappings"),
+			}
 		}
 
-		// Build full domain name (subdomain.domain or just domain)
-		fullDomain := models.GetFullDomain(domain.Name, subdomain)
+		// Check DNS records exist for all domain mappings (if provider is not manual)
+		targetIP := node.IPAddress.String()
+		var fullDomains []string
 
-		// Create or update DNS record if provider is not manual
+		// Check DNS records exist before deploying (if provider is not manual)
 		if domain.DnsProvider.Type != models.DnsProviderManual {
-			// Use domain's provider config, but fall back to global settings if empty
+			// Use domain's provider config combined with global settings
 			providerConfig := domain.DnsProvider
 
-			// For Cloudflare: use global settings as fallback if domain config is empty
+			// Validate that required configuration is present
 			if providerConfig.Type == models.DnsProviderCloudflare {
+				// Use domain's Zone ID + global API token
 				if providerConfig.ZoneID == "" {
-					providerConfig.ZoneID = m.state.CloudflareZoneID
+					return SiteDeployedMsg{
+						SiteID: siteID,
+						Error:  fmt.Errorf("domain %s is missing Cloudflare Zone ID configuration", domain.Name),
+					}
 				}
-				if providerConfig.APIToken == "" {
-					providerConfig.APIToken = m.state.CloudflareAPIToken
+				if m.state.CloudflareAPIToken == "" {
+					return SiteDeployedMsg{
+						SiteID: siteID,
+						Error:  fmt.Errorf("Cloudflare API Token not configured in settings"),
+					}
 				}
+				// Combine domain Zone ID with global API token
+				providerConfig.APIToken = m.state.CloudflareAPIToken
 			}
 
-			// For Route53: use global settings as fallback if domain config is empty
 			if providerConfig.Type == models.DnsProviderRoute53 {
-				if providerConfig.AccessKey == "" {
-					providerConfig.AccessKey = m.state.Route53AccessKey
-				}
-				if providerConfig.SecretKey == "" {
-					providerConfig.SecretKey = m.state.Route53SecretKey
+				if providerConfig.AccessKey == "" || providerConfig.SecretKey == "" || providerConfig.HostedZoneID == "" {
+					return SiteDeployedMsg{
+						SiteID: siteID,
+						Error:  fmt.Errorf("domain %s is missing Route53 Access Key, Secret Key, or Hosted Zone ID configuration", domain.Name),
+					}
 				}
 			}
 
@@ -677,57 +707,50 @@ func (m Model) spawnDeploySite(siteID uuid.UUID) tea.Cmd {
 				// List existing DNS records to check if one already exists
 				existingRecords, err := dnsProvider.ListRecords(domain.Name)
 				if err != nil {
-					// If we can't list records, try to create anyway
 					return SiteDeployedMsg{
 						SiteID: siteID,
 						Error:  fmt.Errorf("failed to list DNS records: %w", err),
 					}
 				}
 
-				// Check if a record with the same name exists
-				var existingRecord *models.DnsRecord
-				for i := range existingRecords {
-					if existingRecords[i].Name == fullDomain && existingRecords[i].RecordType == models.DnsRecordTypeA {
-						existingRecord = &existingRecords[i]
-						break
+				// Check DNS records for all domain mappings
+				for _, mapping := range mappings {
+					fullDomain := models.GetFullDomain(domain.Name, mapping.Subdomain)
+					fullDomains = append(fullDomains, fullDomain)
+
+					// Check if a record with the same name exists
+					var existingRecord *models.DnsRecord
+					for i := range existingRecords {
+						if existingRecords[i].Name == fullDomain && existingRecords[i].RecordType == models.DnsRecordTypeA {
+							existingRecord = &existingRecords[i]
+							break
+						}
 					}
-				}
 
-				targetIP := node.IPAddress.String()
-
-				if existingRecord != nil {
-					// Record exists - check if it points to the correct IP
-					if existingRecord.Value == targetIP {
-						// Record is already correct - continue with deployment
-						// No action needed
-					} else {
-						// Record points to wrong IP - update it
-						existingRecord.Value = targetIP
-						_, err = dnsProvider.UpdateRecord(domain.Name, existingRecord, []string{site.ID.String() + " - updated by Archon (" + site.Name + ")"})
-						if err != nil {
+					if existingRecord != nil {
+						// Record exists - check if it points to the correct IP
+						if existingRecord.Value != targetIP {
+							// Record points to wrong IP - cannot deploy
 							return SiteDeployedMsg{
 								SiteID: siteID,
-								Error:  fmt.Errorf("failed to update DNS record for %s from %s to %s: %w", fullDomain, existingRecord.Value, targetIP, err),
+								Error:  fmt.Errorf("DNS record for %s points to %s but should point to %s. Please setup DNS first (press 'r' or click 🌐)", fullDomain, existingRecord.Value, targetIP),
 							}
 						}
-					}
-				} else {
-					// Record doesn't exist - create it
-					record := models.NewDnsRecord(
-						models.DnsRecordTypeA,
-						fullDomain,
-						targetIP,
-						300, // 5 minute TTL
-					)
-
-					_, err = dnsProvider.CreateRecord(domain.Name, record, []string{site.ID.String() + " - updated by Archon (" + site.Name + ")"})
-					if err != nil {
+						// Record is correct - continue with deployment
+					} else {
+						// Record doesn't exist - cannot deploy
 						return SiteDeployedMsg{
 							SiteID: siteID,
-							Error:  fmt.Errorf("failed to create DNS record for %s: %w", fullDomain, err),
+							Error:  fmt.Errorf("DNS record for %s does not exist. Please setup DNS first (press 'r' or click 🌐)", fullDomain),
 						}
 					}
 				}
+			}
+		} else {
+			// For manual DNS provider, still collect domain names
+			for _, mapping := range mappings {
+				fullDomain := models.GetFullDomain(domain.Name, mapping.Subdomain)
+				fullDomains = append(fullDomains, fullDomain)
 			}
 		}
 
@@ -741,17 +764,181 @@ func (m Model) spawnDeploySite(siteID uuid.UUID) tea.Cmd {
 		}
 
 		// Deploy using WebSocket with progress callback
+		// Use the first domain for deployment (the deployment handles all domains)
 		err := httpClient.DeploySiteWebSocket(
 			node.APIEndpoint,
 			node.APIKey,
 			site,
-			fullDomain,
+			fullDomains[0],
 			nil, // No progress callback for now - just use WebSocket for timeout prevention
 		)
 
 		return SiteDeployedMsg{
 			SiteID: siteID,
 			Error:  err,
+		}
+	}
+}
+
+func (m Model) spawnSetupDNS(siteID uuid.UUID) tea.Cmd {
+	return func() tea.Msg {
+		// Get site from state by ID
+		site := m.state.GetSiteByID(siteID)
+		if site == nil {
+			return DNSSetupResultMsg{
+				SiteID: siteID,
+				Error:  fmt.Errorf("site not found"),
+			}
+		}
+
+		// Get node from state by site.NodeID
+		node := m.state.GetNodeByID(site.NodeID)
+		if node == nil {
+			return DNSSetupResultMsg{
+				SiteID: siteID,
+				Error:  fmt.Errorf("node not found"),
+			}
+		}
+
+		// Get domain from state by site.DomainID
+		domain := m.state.GetDomainByID(site.DomainID)
+		if domain == nil {
+			return DNSSetupResultMsg{
+				SiteID: siteID,
+				Error:  fmt.Errorf("domain not found"),
+			}
+		}
+
+		// Check if DNS provider is manual
+		if domain.DnsProvider.Type == models.DnsProviderManual {
+			return DNSSetupResultMsg{
+				SiteID:  siteID,
+				Message: "DNS provider is set to Manual. Please create DNS records manually.",
+				Error:   nil,
+			}
+		}
+
+		// Get all domain mappings
+		mappings := site.GetDomainMappings()
+		if len(mappings) == 0 {
+			return DNSSetupResultMsg{
+				SiteID: siteID,
+				Error:  fmt.Errorf("site has no domain mappings"),
+			}
+		}
+
+		// Use domain's provider config combined with global settings
+		providerConfig := domain.DnsProvider
+
+		// Validate that required configuration is present
+		if providerConfig.Type == models.DnsProviderCloudflare {
+			// Use domain's Zone ID + global API token
+			if providerConfig.ZoneID == "" {
+				return DNSSetupResultMsg{
+					SiteID: siteID,
+					Error:  fmt.Errorf("domain %s is missing Cloudflare Zone ID configuration", domain.Name),
+				}
+			}
+			if m.state.CloudflareAPIToken == "" {
+				return DNSSetupResultMsg{
+					SiteID: siteID,
+					Error:  fmt.Errorf("Cloudflare API Token not configured in settings"),
+				}
+			}
+			// Combine domain Zone ID with global API token
+			providerConfig.APIToken = m.state.CloudflareAPIToken
+		}
+
+		if providerConfig.Type == models.DnsProviderRoute53 {
+			if providerConfig.AccessKey == "" || providerConfig.SecretKey == "" || providerConfig.HostedZoneID == "" {
+				return DNSSetupResultMsg{
+					SiteID: siteID,
+					Error:  fmt.Errorf("domain %s is missing Route53 Access Key, Secret Key, or Hosted Zone ID configuration", domain.Name),
+				}
+			}
+		}
+
+		dnsProvider, err := dns.CreateProvider(&providerConfig)
+		if err != nil {
+			return DNSSetupResultMsg{
+				SiteID: siteID,
+				Error:  fmt.Errorf("failed to create DNS provider: %w", err),
+			}
+		}
+
+		if dnsProvider == nil {
+			return DNSSetupResultMsg{
+				SiteID: siteID,
+				Error:  fmt.Errorf("DNS provider is nil"),
+			}
+		}
+
+		// List existing DNS records to check if one already exists
+		existingRecords, err := dnsProvider.ListRecords(domain.Name)
+		if err != nil {
+			return DNSSetupResultMsg{
+				SiteID: siteID,
+				Error:  fmt.Errorf("failed to list DNS records: %w", err),
+			}
+		}
+
+		// Check if a record with the same name exists
+		var existingRecord *models.DnsRecord
+		for i := range existingRecords {
+			if existingRecords[i].Name == fullDomain && existingRecords[i].RecordType == models.DnsRecordTypeA {
+				existingRecord = &existingRecords[i]
+				break
+			}
+		}
+
+		targetIP := node.IPAddress.String()
+
+		if existingRecord != nil {
+			// Record exists - check if it points to the correct IP
+			if existingRecord.Value == targetIP {
+				// Record is already correct
+				return DNSSetupResultMsg{
+					SiteID:  siteID,
+					Message: fmt.Sprintf("DNS record for %s already exists and points to %s", fullDomain, targetIP),
+					Error:   nil,
+				}
+			} else {
+				// Record points to wrong IP - update it
+				existingRecord.Value = targetIP
+				_, err = dnsProvider.UpdateRecord(domain.Name, existingRecord, []string{site.Name})
+				if err != nil {
+					return DNSSetupResultMsg{
+						SiteID: siteID,
+						Error:  fmt.Errorf("failed to update DNS record for %s from %s to %s: %w", fullDomain, existingRecord.Value, targetIP, err),
+					}
+				}
+				return DNSSetupResultMsg{
+					SiteID:  siteID,
+					Message: fmt.Sprintf("DNS record for %s updated to point to %s. Allow 5-10 minutes for DNS propagation.", fullDomain, targetIP),
+					Error:   nil,
+				}
+			}
+		} else {
+			// Record doesn't exist - create it
+			record := models.NewDnsRecord(
+				models.DnsRecordTypeA,
+				fullDomain,
+				targetIP,
+				300, // 5 minute TTL
+			)
+
+			_, err = dnsProvider.CreateRecord(domain.Name, record, []string{site.Name})
+			if err != nil {
+				return DNSSetupResultMsg{
+					SiteID: siteID,
+					Error:  fmt.Errorf("failed to create DNS record for %s: %w", fullDomain, err),
+				}
+			}
+			return DNSSetupResultMsg{
+				SiteID:  siteID,
+				Message: fmt.Sprintf("DNS record for %s created successfully pointing to %s. Allow 5-10 minutes for DNS propagation.", fullDomain, targetIP),
+				Error:   nil,
+			}
 		}
 	}
 }

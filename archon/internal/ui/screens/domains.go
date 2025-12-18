@@ -160,17 +160,62 @@ func RenderDomainCreate(s *state.AppState) string {
 
 // RenderDomainCreateWithZones renders the domain creation form with clickable field
 func RenderDomainCreateWithZones(s *state.AppState, zm *zone.Manager) string {
-	// Initialize form if needed (2 fields: domain name, provider)
-	if len(s.FormFields) != 2 {
-		s.FormFields = []string{"", "manual"} // Default to manual provider
+	// Initialize form if needed
+	// Fields: 0=domain name, 1=provider, 2=zone/hosted zone ID, 3=access key (route53 only), 4=secret key (route53 only)
+	if len(s.FormFields) != 5 {
+		s.FormFields = []string{"", "manual", "", "", ""} // Default to manual provider
 		s.CurrentFieldIndex = 0
 	}
 
 	title := titleStyle.Render("Create New Domain")
 
-	labels := []string{
-		"Domain Name:",
-		"DNS Provider:",
+	providerType := s.FormFields[1]
+
+	// Define labels based on provider type
+	var labels []string
+	if providerType == "cloudflare" {
+		labels = []string{
+			"Domain Name:",
+			"DNS Provider:",
+			"Cloudflare Zone ID:",
+		}
+	} else if providerType == "route53" {
+		labels = []string{
+			"Domain Name:",
+			"DNS Provider:",
+			"Hosted Zone ID:",
+			"AWS Access Key:",
+			"AWS Secret Key:",
+		}
+	} else {
+		// Manual provider
+		labels = []string{
+			"Domain Name:",
+			"DNS Provider:",
+		}
+	}
+
+	// Define help texts based on provider type
+	var helpTexts []string
+	if providerType == "cloudflare" {
+		helpTexts = []string{
+			"e.g., example.com",
+			"Select DNS provider",
+			"Found in Cloudflare domain overview (32 characters)",
+		}
+	} else if providerType == "route53" {
+		helpTexts = []string{
+			"e.g., example.com",
+			"Select DNS provider",
+			"AWS Route53 Hosted Zone ID",
+			"AWS access key",
+			"AWS secret key",
+		}
+	} else {
+		helpTexts = []string{
+			"e.g., example.com",
+			"Select DNS provider",
+		}
 	}
 
 	// Render each field
@@ -178,6 +223,12 @@ func RenderDomainCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	for i, label := range labels {
 		value := s.FormFields[i]
 		displayValue := value
+
+		// Mask sensitive fields (Route53 keys only) when not focused
+		isSensitive := (providerType == "route53" && (i == 3 || i == 4))
+		if isSensitive && value != "" && i != s.CurrentFieldIndex {
+			displayValue = "••••••••••••••••"
+		}
 
 		// Show cursor if focused
 		if i == s.CurrentFieldIndex {
@@ -189,10 +240,15 @@ func RenderDomainCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 
 		// Wrap the field line in a clickable zone
 		fieldLine := label + " " + displayValue + "\n"
+		helpLine := ""
+		if i < len(helpTexts) {
+			helpLine = "  " + lipgloss.NewStyle().Faint(true).Render(helpTexts[i]) + "\n"
+		}
+
 		if zm != nil {
-			fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
+			fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine) + helpLine
 		} else {
-			fields += fieldLine
+			fields += fieldLine + helpLine
 		}
 
 		// Show dropdown options for Provider field (index 1) when focused
@@ -267,21 +323,76 @@ func RenderDomainEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		return titleStyle.Render("Edit Domain") + "\n\n" + "Domain not found\n\n" + helpStyle.Render("Press Esc to go back")
 	}
 
-	// Initialize form if needed with current domain name and provider
-	if len(s.FormFields) != 2 {
+	// Initialize form if needed with current domain settings
+	// Fields: 0=domain name, 1=provider, 2=zone/hosted zone ID, 3=access key (route53 only), 4=secret key (route53 only)
+	if len(s.FormFields) != 5 {
 		providerType := string(domain.DnsProvider.Type)
 		if providerType == "" {
 			providerType = "manual"
 		}
-		s.FormFields = []string{domain.Name, providerType}
+		s.FormFields = []string{
+			domain.Name,
+			providerType,
+			domain.DnsProvider.ZoneID,           // Cloudflare Zone ID or Route53 Hosted Zone ID
+			domain.DnsProvider.AccessKey,        // Route53 Access Key only
+			domain.DnsProvider.SecretKey,        // Route53 Secret Key only
+		}
+		// Handle Route53 fields
+		if providerType == "route53" {
+			s.FormFields[2] = domain.DnsProvider.HostedZoneID
+		}
 		s.CurrentFieldIndex = 0
 	}
 
 	title := titleStyle.Render("Edit Domain: " + domain.Name)
 
-	labels := []string{
-		"Domain Name:",
-		"DNS Provider:",
+	providerType := s.FormFields[1]
+
+	// Define labels based on provider type
+	var labels []string
+	if providerType == "cloudflare" {
+		labels = []string{
+			"Domain Name:",
+			"DNS Provider:",
+			"Cloudflare Zone ID:",
+		}
+	} else if providerType == "route53" {
+		labels = []string{
+			"Domain Name:",
+			"DNS Provider:",
+			"Hosted Zone ID:",
+			"AWS Access Key:",
+			"AWS Secret Key:",
+		}
+	} else {
+		// Manual provider
+		labels = []string{
+			"Domain Name:",
+			"DNS Provider:",
+		}
+	}
+
+	// Define help texts based on provider type
+	var helpTexts []string
+	if providerType == "cloudflare" {
+		helpTexts = []string{
+			"e.g., example.com",
+			"Select DNS provider",
+			"Found in Cloudflare domain overview (32 characters)",
+		}
+	} else if providerType == "route53" {
+		helpTexts = []string{
+			"e.g., example.com",
+			"Select DNS provider",
+			"AWS Route53 Hosted Zone ID",
+			"AWS access key",
+			"AWS secret key",
+		}
+	} else {
+		helpTexts = []string{
+			"e.g., example.com",
+			"Select DNS provider",
+		}
 	}
 
 	// Render each field
@@ -289,6 +400,12 @@ func RenderDomainEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	for i, label := range labels {
 		value := s.FormFields[i]
 		displayValue := value
+
+		// Mask sensitive fields (Route53 keys only) when not focused
+		isSensitive := (providerType == "route53" && (i == 3 || i == 4))
+		if isSensitive && value != "" && i != s.CurrentFieldIndex {
+			displayValue = "••••••••••••••••"
+		}
 
 		// Show cursor if focused
 		if i == s.CurrentFieldIndex {
@@ -300,10 +417,15 @@ func RenderDomainEditWithZones(s *state.AppState, zm *zone.Manager) string {
 
 		// Wrap the field line in a clickable zone
 		fieldLine := label + " " + displayValue + "\n"
+		helpLine := ""
+		if i < len(helpTexts) {
+			helpLine = "  " + lipgloss.NewStyle().Faint(true).Render(helpTexts[i]) + "\n"
+		}
+
 		if zm != nil {
-			fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
+			fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine) + helpLine
 		} else {
-			fields += fieldLine
+			fields += fieldLine + helpLine
 		}
 
 		// Show dropdown options for Provider field (index 1) when focused

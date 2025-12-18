@@ -17,10 +17,9 @@ type Settings struct {
 	HealthCheckIntervalSecs int    `toml:"health_check_interval_secs"`
 	DefaultDnsTTL           int    `toml:"default_dns_ttl"`
 	Theme                   string `toml:"theme"`
-	CloudflareZoneID        string `toml:"cloudflare_zone_id,omitempty"`
-	CloudflareAPIToken      string `toml:"cloudflare_api_token,omitempty"`
-	Route53AccessKey        string `toml:"route53_access_key,omitempty"`
-	Route53SecretKey        string `toml:"route53_secret_key,omitempty"`
+	CloudflareAPIToken      string `toml:"cloudflare_api_token,omitempty"` // Global default
+	Route53AccessKey        string `toml:"route53_access_key,omitempty"`   // Global default
+	Route53SecretKey        string `toml:"route53_secret_key,omitempty"`   // Global default
 }
 
 // DefaultSettings returns default configuration settings

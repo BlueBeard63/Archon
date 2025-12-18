@@ -239,13 +239,13 @@ type cloudflareError struct {
 
 // cloudflareRecord represents a DNS record in Cloudflare's format
 type cloudflareRecord struct {
-	ID      string   `json:"id,omitempty"`
-	Type    string   `json:"type"`
-	Name    string   `json:"name"`
-	Content string   `json:"content"`
-	TTL     int      `json:"ttl"`
-	Proxied bool     `json:"proxied"`
-	Tags    []string `json:"tags,omitempty"`
+	ID      string `json:"id,omitempty"`
+	Type    string `json:"type"`
+	Name    string `json:"name"`
+	Content string `json:"content"`
+	TTL     int    `json:"ttl"`
+	Proxied bool   `json:"proxied"`
+	Comment string `json:"comment,omitempty"`
 }
 
 // toCloudflareRecord converts models.DnsRecord to Cloudflare format
@@ -256,7 +256,11 @@ func toCloudflareRecord(record *models.DnsRecord, tags []string) cloudflareRecor
 		Content: record.Value,
 		TTL:     record.TTL,
 		Proxied: record.Proxied,
-		Tags:    tags,
+	}
+
+	// Use first tag as comment if tags are provided
+	if len(tags) > 0 {
+		cfRec.Comment = tags[0]
 	}
 
 	// Include ID if it exists (for updates)

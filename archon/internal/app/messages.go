@@ -54,6 +54,18 @@ type SiteDeployProgressMsg struct {
 	Step    string // "init", "ssl", "docker", "proxy", "complete"
 }
 
+// SetupDNSMsg triggers DNS record setup for a site
+type SetupDNSMsg struct {
+	SiteID uuid.UUID
+}
+
+// DNSSetupResultMsg is returned after DNS setup completes
+type DNSSetupResultMsg struct {
+	SiteID  uuid.UUID
+	Message string // Success message with details
+	Error   error
+}
+
 // StopSiteMsg stops a running site
 type StopSiteMsg struct {
 	SiteID uuid.UUID

@@ -119,8 +119,23 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		for _, site := range s.Sites {
 			var buttons []string
 
-			// Only show deploy button for inactive sites
+			// Only show deploy and DNS buttons for inactive/failed sites
 			if site.Status == models.SiteStatusInactive || site.Status == models.SiteStatusFailed || site.Status == "" {
+				// DNS setup button
+				dnsBtn := components.Button{
+					ID:      "setup-dns-" + site.ID.String(),
+					Label:   "🌐",
+					Primary: false,
+					Border:  false,
+					Icon:    true,
+				}
+				if zm != nil {
+					buttons = append(buttons, dnsBtn.RenderWithZone(zm))
+				} else {
+					buttons = append(buttons, dnsBtn.Render())
+				}
+
+				// Deploy button
 				deployBtn := components.Button{
 					ID:      "deploy-site-" + site.ID.String(),
 					Label:   "🚀",

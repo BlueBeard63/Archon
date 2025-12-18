@@ -16,10 +16,9 @@ func RenderSettings(s *state.AppState) string {
 
 // RenderSettingsWithZones renders the settings screen with clickable fields
 func RenderSettingsWithZones(s *state.AppState, zm *zone.Manager) string {
-	// Initialize form if needed (4 fields for API keys)
-	if len(s.FormFields) != 4 {
+	// Initialize form if needed (3 fields for API keys - Zone ID is now per-domain)
+	if len(s.FormFields) != 3 {
 		s.FormFields = []string{
-			s.CloudflareZoneID,
 			s.CloudflareAPIToken,
 			s.Route53AccessKey,
 			s.Route53SecretKey,
@@ -30,17 +29,15 @@ func RenderSettingsWithZones(s *state.AppState, zm *zone.Manager) string {
 	title := titleStyle.Render("⚙️  Settings")
 
 	labels := []string{
-		"Cloudflare Zone ID:",
 		"Cloudflare API Token:",
 		"Route53 Access Key:",
 		"Route53 Secret Key:",
 	}
 
 	helpTexts := []string{
-		"Cloudflare Zone ID (found in domain overview)",
-		"Cloudflare API Token (with DNS edit permissions)",
-		"AWS access key for Route53",
-		"AWS secret key for Route53",
+		"Cloudflare API Token (with DNS edit permissions) - optional global default",
+		"AWS access key for Route53 - optional global default",
+		"AWS secret key for Route53 - optional global default",
 	}
 
 	// Render each field
@@ -81,7 +78,7 @@ func RenderSettingsWithZones(s *state.AppState, zm *zone.Manager) string {
 	}
 
 	help := helpStyle.Render("\nTab/Shift+Tab to navigate, Enter to save, Esc to cancel")
-	note := helpStyle.Render("Note: Keys are stored in config.toml. Leave empty if not using that provider.")
+	note := helpStyle.Render("Note: Global credentials are stored in config.toml and used as defaults.\nZone IDs are configured per-domain when creating or editing domains.")
 
 	return title + "\n\n" + fields + help + "\n" + note
 }

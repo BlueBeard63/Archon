@@ -260,6 +260,15 @@ func (m Model) handleSitesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+
+	case "r":
+		// Setup DNS records for selected site
+		if len(m.state.Sites) > 0 && m.state.SitesListIndex >= 0 && m.state.SitesListIndex < len(m.state.Sites) {
+			site := m.state.Sites[m.state.SitesListIndex]
+			m.state.AddNotification("Setting up DNS records for: "+site.Name, "info")
+			return m, m.spawnSetupDNS(site.ID)
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -997,23 +1006,25 @@ func (m Model) handleDomainCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeySpace:
-		// Add space to current field (only domain name field 0)
-		if m.state.CurrentFieldIndex == 0 {
-			m.state.FormFields[0] += " "
+		// Add space to current field (except provider dropdown)
+		if m.state.CurrentFieldIndex != 1 && m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) {
+			m.state.FormFields[m.state.CurrentFieldIndex] += " "
 		}
 		return m, nil
 
 	case tea.KeyRunes:
-		// Add character to domain name field only
-		if m.state.CurrentFieldIndex == 0 {
-			m.state.FormFields[0] += string(msg.Runes)
+		// Add character to current field (except provider dropdown)
+		if m.state.CurrentFieldIndex != 1 && m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) {
+			m.state.FormFields[m.state.CurrentFieldIndex] += string(msg.Runes)
 		}
 		return m, nil
 
 	case tea.KeyBackspace:
-		// Remove last character from domain name field only
-		if m.state.CurrentFieldIndex == 0 && len(m.state.FormFields[0]) > 0 {
-			m.state.FormFields[0] = m.state.FormFields[0][:len(m.state.FormFields[0])-1]
+		// Remove last character from current field (except provider dropdown)
+		if m.state.CurrentFieldIndex != 1 && m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) {
+			if len(m.state.FormFields[m.state.CurrentFieldIndex]) > 0 {
+				m.state.FormFields[m.state.CurrentFieldIndex] = m.state.FormFields[m.state.CurrentFieldIndex][:len(m.state.FormFields[m.state.CurrentFieldIndex])-1]
+			}
 		}
 		return m, nil
 
@@ -1139,23 +1150,25 @@ func (m Model) handleDomainEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeySpace:
-		// Add space to current field (only domain name field 0)
-		if m.state.CurrentFieldIndex == 0 {
-			m.state.FormFields[0] += " "
+		// Add space to current field (except provider dropdown)
+		if m.state.CurrentFieldIndex != 1 && m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) {
+			m.state.FormFields[m.state.CurrentFieldIndex] += " "
 		}
 		return m, nil
 
 	case tea.KeyRunes:
-		// Add character to domain name field only
-		if m.state.CurrentFieldIndex == 0 {
-			m.state.FormFields[0] += string(msg.Runes)
+		// Add character to current field (except provider dropdown)
+		if m.state.CurrentFieldIndex != 1 && m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) {
+			m.state.FormFields[m.state.CurrentFieldIndex] += string(msg.Runes)
 		}
 		return m, nil
 
 	case tea.KeyBackspace:
-		// Remove last character from domain name field only
-		if m.state.CurrentFieldIndex == 0 && len(m.state.FormFields[0]) > 0 {
-			m.state.FormFields[0] = m.state.FormFields[0][:len(m.state.FormFields[0])-1]
+		// Remove last character from current field (except provider dropdown)
+		if m.state.CurrentFieldIndex != 1 && m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) {
+			if len(m.state.FormFields[m.state.CurrentFieldIndex]) > 0 {
+				m.state.FormFields[m.state.CurrentFieldIndex] = m.state.FormFields[m.state.CurrentFieldIndex][:len(m.state.FormFields[m.state.CurrentFieldIndex])-1]
+			}
 		}
 		return m, nil
 
@@ -2034,6 +2047,7 @@ func (m Model) handleSiteEditSubmit() (tea.Model, tea.Cmd) {
 
 // handleDomainCreateSubmit processes domain creation form submission
 func (m Model) handleDomainCreateSubmit() (tea.Model, tea.Cmd) {
+	// Fields: 0=domain name, 1=provider, 2=zone/hosted zone ID, 3=API token/access key, 4=secret key (route53 only)
 	domainName := m.state.FormFields[0]
 	providerType := m.state.FormFields[1]
 
@@ -2051,13 +2065,40 @@ func (m Model) handleDomainCreateSubmit() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Create DNS provider based on type
+	// Create DNS provider based on type with configuration
 	var provider models.DnsProvider
 	switch providerType {
 	case "cloudflare":
-		provider = models.DnsProvider{Type: models.DnsProviderCloudflare}
+		zoneID := m.state.FormFields[2]
+
+		// Validate required fields for Cloudflare (Zone ID only, API token is global)
+		if zoneID == "" {
+			m.state.AddNotification("Cloudflare Zone ID is required", "error")
+			return m, nil
+		}
+
+		provider = models.DnsProvider{
+			Type:   models.DnsProviderCloudflare,
+			ZoneID: zoneID,
+			// APIToken is stored globally in settings, not per-domain
+		}
 	case "route53":
-		provider = models.DnsProvider{Type: models.DnsProviderRoute53}
+		hostedZoneID := m.state.FormFields[2]
+		accessKey := m.state.FormFields[3]
+		secretKey := m.state.FormFields[4]
+
+		// Validate required fields for Route53
+		if hostedZoneID == "" || accessKey == "" || secretKey == "" {
+			m.state.AddNotification("Route53 Hosted Zone ID, Access Key, and Secret Key are required", "error")
+			return m, nil
+		}
+
+		provider = models.DnsProvider{
+			Type:         models.DnsProviderRoute53,
+			HostedZoneID: hostedZoneID,
+			AccessKey:    accessKey,
+			SecretKey:    secretKey,
+		}
 	default:
 		provider = models.DnsProvider{Type: models.DnsProviderManual}
 	}
@@ -2081,6 +2122,7 @@ func (m Model) handleDomainCreateSubmit() (tea.Model, tea.Cmd) {
 
 // handleDomainEditSubmit processes domain edit form submission
 func (m Model) handleDomainEditSubmit() (tea.Model, tea.Cmd) {
+	// Fields: 0=domain name, 1=provider, 2=zone/hosted zone ID, 3=API token/access key, 4=secret key (route53 only)
 	newDomainName := m.state.FormFields[0]
 	providerType := m.state.FormFields[1]
 
@@ -2119,13 +2161,40 @@ func (m Model) handleDomainEditSubmit() (tea.Model, tea.Cmd) {
 	// Update domain name
 	m.state.Domains[domainIndex].Name = newDomainName
 
-	// Update DNS provider based on type
+	// Update DNS provider based on type with configuration
 	var provider models.DnsProvider
 	switch providerType {
 	case "cloudflare":
-		provider = models.DnsProvider{Type: models.DnsProviderCloudflare}
+		zoneID := m.state.FormFields[2]
+
+		// Validate required fields for Cloudflare (Zone ID only, API token is global)
+		if zoneID == "" {
+			m.state.AddNotification("Cloudflare Zone ID is required", "error")
+			return m, nil
+		}
+
+		provider = models.DnsProvider{
+			Type:   models.DnsProviderCloudflare,
+			ZoneID: zoneID,
+			// APIToken is stored globally in settings, not per-domain
+		}
 	case "route53":
-		provider = models.DnsProvider{Type: models.DnsProviderRoute53}
+		hostedZoneID := m.state.FormFields[2]
+		accessKey := m.state.FormFields[3]
+		secretKey := m.state.FormFields[4]
+
+		// Validate required fields for Route53
+		if hostedZoneID == "" || accessKey == "" || secretKey == "" {
+			m.state.AddNotification("Route53 Hosted Zone ID, Access Key, and Secret Key are required", "error")
+			return m, nil
+		}
+
+		provider = models.DnsProvider{
+			Type:         models.DnsProviderRoute53,
+			HostedZoneID: hostedZoneID,
+			AccessKey:    accessKey,
+			SecretKey:    secretKey,
+		}
 	default:
 		provider = models.DnsProvider{Type: models.DnsProviderManual}
 	}
@@ -2175,11 +2244,10 @@ func (m Model) handleDomainEditSubmit() (tea.Model, tea.Cmd) {
 
 // handleSettingsSave processes settings form submission
 func (m Model) handleSettingsSave() (tea.Model, tea.Cmd) {
-	// Update state with new API keys
-	m.state.CloudflareZoneID = m.state.FormFields[0]
-	m.state.CloudflareAPIToken = m.state.FormFields[1]
-	m.state.Route53AccessKey = m.state.FormFields[2]
-	m.state.Route53SecretKey = m.state.FormFields[3]
+	// Update state with new API keys (Zone ID is now per-domain)
+	m.state.CloudflareAPIToken = m.state.FormFields[0]
+	m.state.Route53AccessKey = m.state.FormFields[1]
+	m.state.Route53SecretKey = m.state.FormFields[2]
 
 	m.state.AddNotification("Settings saved successfully", "success")
 
@@ -2465,7 +2533,6 @@ func (m Model) saveConfigSync() error {
 			HealthCheckIntervalSecs: 60,
 			DefaultDnsTTL:           3600,
 			Theme:                   "default",
-			CloudflareZoneID:        m.state.CloudflareZoneID,
 			CloudflareAPIToken:      m.state.CloudflareAPIToken,
 			Route53AccessKey:        m.state.Route53AccessKey,
 			Route53SecretKey:        m.state.Route53SecretKey,
