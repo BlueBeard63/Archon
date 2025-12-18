@@ -2,9 +2,11 @@ package docker
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,61 +48,6 @@ func NewClient(host, networkName string) (*Client, error) {
 	}, nil
 }
 
-// getAuthConfig reads Docker authentication from config.json
-func getAuthConfig(imageName string) (string, error) {
-	// Try to read Docker config from home directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", nil // Return empty auth if can't get home dir
-	}
-
-	configPath := filepath.Join(homeDir, ".docker", "config.json")
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return "", nil // Return empty auth if config doesn't exist
-	}
-
-	var config struct {
-		Auths map[string]struct {
-			Auth string `json:"auth"`
-		} `json:"auths"`
-	}
-
-	if err := json.Unmarshal(data, &config); err != nil {
-		return "", nil // Return empty auth if can't parse
-	}
-
-	// Extract registry from image name (e.g., "docker.io" from "docker.io/user/image")
-	registryURL := "https://index.docker.io/v1/" // Default to Docker Hub
-	if strings.Contains(imageName, "/") {
-		parts := strings.Split(imageName, "/")
-		if strings.Contains(parts[0], ".") {
-			// Custom registry
-			registryURL = parts[0]
-		}
-	}
-
-	// Try to find auth for this registry
-	for reg, auth := range config.Auths {
-		if strings.Contains(reg, registryURL) || reg == registryURL {
-			// The Auth field is already base64-encoded, return it directly
-			return auth.Auth, nil
-		}
-	}
-
-	// If no specific auth found, try the default Docker Hub entry
-	if auth, ok := config.Auths["https://index.docker.io/v1/"]; ok {
-		return auth.Auth, nil
-	}
-
-	// Try Docker Hub without https prefix
-	if auth, ok := config.Auths["docker.io"]; ok {
-		return auth.Auth, nil
-	}
-
-	return "", nil // No auth found
-}
-
 // EnsureNetwork creates the archon network if it doesn't exist
 func (c *Client) EnsureNetwork(ctx context.Context) error {
 	networks, err := c.cli.NetworkList(ctx, types.NetworkListOptions{})
@@ -133,11 +80,16 @@ func (c *Client) DeploySite(ctx context.Context, req *models.DeployRequest, data
 		return nil, err
 	}
 
+	encodedJSON, err := json.Marshal(req.Docker.Credentials)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// Get authentication for pulling image
-	authStr, _ := getAuthConfig(req.DockerImage)
+	authStr := base64.StdEncoding.EncodeToString(encodedJSON)
 
 	// Pull image
-	reader, err := c.cli.ImagePull(ctx, req.DockerImage, image.PullOptions{
+	reader, err := c.cli.ImagePull(ctx, req.Docker.Image, image.PullOptions{
 		RegistryAuth: authStr,
 	})
 	if err != nil {
@@ -187,7 +139,7 @@ func (c *Client) DeploySite(ctx context.Context, req *models.DeployRequest, data
 
 	// Create container config
 	containerConfig := &container.Config{
-		Image:        req.DockerImage,
+		Image:        req.Docker.Image,
 		Env:          envVars,
 		ExposedPorts: exposedPorts,
 		Labels:       labels,

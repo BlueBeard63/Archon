@@ -272,9 +272,9 @@ func RenderSiteCreate(s *state.AppState) string {
 
 // RenderSiteCreateWithZones renders the site creation form with clickable fields
 func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
-	// Initialize form if needed (5 fields: name, node, docker image, ssl email, config file)
-	if len(s.FormFields) != 5 {
-		s.FormFields = []string{"", "", "", "", ""}
+	// Initialize form if needed (7 fields: name, node, docker image, docker username, docker token, ssl email, config file)
+	if len(s.FormFields) != 7 {
+		s.FormFields = []string{"", "", "", "", "", "", ""}
 		s.CurrentFieldIndex = 0
 	}
 
@@ -294,6 +294,8 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		"Name:",
 		"Node:",
 		"Docker Image:",
+		"Docker Username:",
+		"Docker Token:",
 		"SSL Email (for Let's Encrypt):",
 		"Config File Path (optional):",
 	}
@@ -343,8 +345,12 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
 		}
 	} else if s.CurrentFieldIndex == 3 {
-		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
+		helpText = "\nLeave black to skip Docker Auth (if image is public)"
 	} else if s.CurrentFieldIndex == 4 {
+		helpText = "\nLeave black to skip Docker Auth (if image is public)"
+	} else if s.CurrentFieldIndex == 5 {
+		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
+	} else if s.CurrentFieldIndex == 6 {
 		helpText = "\nEnter full path to config file (will be loaded when site is created)"
 	} else if s.CurrentFieldIndex == 100 {
 		// Special index for ENV vars
@@ -373,13 +379,15 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		return titleStyle.Render("Error: Site not found")
 	}
 
-	// Initialize form fields if needed (5 fields: name, node, docker image, ssl email, config file)
-	if len(s.FormFields) != 5 {
+	// Initialize form fields if needed (7 fields: name, node, docker image, docker username, docker token, ssl email, config file)
+	if len(s.FormFields) != 7 {
 		// Pre-populate with existing site data
-		s.FormFields = make([]string, 5)
+		s.FormFields = make([]string, 7)
 		s.FormFields[0] = site.Name
 		s.FormFields[2] = site.DockerImage
-		s.FormFields[3] = site.SSLEmail
+		s.FormFields[3] = site.DockerUsername
+		s.FormFields[4] = site.DockerToken
+		s.FormFields[5] = site.SSLEmail
 
 		// Find node name
 		for _, n := range s.Nodes {
@@ -391,9 +399,9 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 
 		// Config file path (leave blank or show first config file name)
 		if len(site.ConfigFiles) > 0 {
-			s.FormFields[4] = site.ConfigFiles[0].Name
+			s.FormFields[6] = site.ConfigFiles[0].Name
 		} else {
-			s.FormFields[4] = ""
+			s.FormFields[6] = ""
 		}
 
 		s.CurrentFieldIndex = 0
@@ -448,6 +456,8 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		"Name:",
 		"Node:",
 		"Docker Image:",
+		"Docker Username:",
+		"Docker Token:",
 		"SSL Email (for Let's Encrypt):",
 		"Config File Path (optional):",
 	}
@@ -488,7 +498,7 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	envSection := renderEnvVarsSection(s, zm)
 	fields += "\n" + envSection
 
-	helpText := "\nTab/Shift+Tab to navigate, Enter to update, Esc to cancel"
+	helpText := "\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel"
 	if s.CurrentFieldIndex == 1 {
 		// On Node dropdown field
 		if s.DropdownOpen {
@@ -497,9 +507,13 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
 		}
 	} else if s.CurrentFieldIndex == 3 {
-		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
+		helpText = "\nLeave black to skip Docker Auth (if image is public)"
 	} else if s.CurrentFieldIndex == 4 {
-		helpText = "\nEnter full path to config file (will be loaded when site is updated)"
+		helpText = "\nLeave black to skip Docker Auth (if image is public)"
+	} else if s.CurrentFieldIndex == 5 {
+		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
+	} else if s.CurrentFieldIndex == 6 {
+		helpText = "\nEnter full path to config file (will be loaded when site is created)"
 	} else if s.CurrentFieldIndex == 100 {
 		// Special index for ENV vars
 		helpText = "\nType key/value, Tab to switch between key/value, +/- buttons to add/remove pairs"
@@ -725,14 +739,6 @@ func renderDropdownOptions[T any](s *state.AppState, items []T, selectedIndex in
 	}
 
 	return options.String()
-}
-
-// boolToYesNo converts boolean to "Yes"/"No" string
-func boolToYesNo(b bool) string {
-	if b {
-		return "Yes"
-	}
-	return "No"
 }
 
 // renderSiteSidebar renders a sidebar showing relationships for the selected site

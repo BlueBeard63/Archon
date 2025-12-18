@@ -19,11 +19,13 @@ const (
 type Site struct {
 	ID              uuid.UUID         `json:"id" toml:"id"`
 	Name            string            `json:"name" toml:"name"`
-	DomainID        uuid.UUID         `json:"domain_id" toml:"domain_id"`                   // Legacy: single domain (kept for backward compatibility)
+	DomainID        uuid.UUID         `json:"domain_id" toml:"domain_id"` // Legacy: single domain (kept for backward compatibility)
 	NodeID          uuid.UUID         `json:"node_id" toml:"node_id"`
 	DockerImage     string            `json:"docker_image" toml:"docker_image"`
+	DockerUsername  string            `json:"docker_username,omitempty" toml:"docker_username,omitempty"`
+	DockerToken     string            `json:"docker_token,omitempty" toml:"docker_token,omitempty"`
 	EnvironmentVars map[string]string `json:"environment_vars" toml:"environment_vars"`
-	Port            int               `json:"port" toml:"port"`                             // Legacy: single port (kept for backward compatibility)
+	Port            int               `json:"port" toml:"port"`                                           // Legacy: single port (kept for backward compatibility)
 	DomainMappings  []DomainMapping   `json:"domain_mappings,omitempty" toml:"domain_mappings,omitempty"` // New: multiple domain-port mappings
 	SSLEnabled      bool              `json:"ssl_enabled" toml:"ssl_enabled"`
 	SSLEmail        string            `json:"ssl_email,omitempty" toml:"ssl_email,omitempty"` // Email for Let's Encrypt certificate registration
@@ -74,6 +76,8 @@ func NewSite(name string, domainID, nodeID uuid.UUID, dockerImage string, port i
 		DomainID:        domainID, // Set legacy field for backward compatibility
 		NodeID:          nodeID,
 		DockerImage:     dockerImage,
+		DockerUsername:  "",
+		DockerToken:     "",
 		EnvironmentVars: make(map[string]string),
 		Port:            port, // Set legacy field for backward compatibility
 		SSLEnabled:      true, // Default to SSL enabled

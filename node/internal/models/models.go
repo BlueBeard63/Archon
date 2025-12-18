@@ -21,15 +21,25 @@ type DeployRequest struct {
 	ID              uuid.UUID         `json:"id"`
 	Name            string            `json:"name"`
 	Domain          string            `json:"domain"`
-	DockerImage     string            `json:"docker_image"`
+	Docker          Docker            `json:"docker"`
 	EnvironmentVars map[string]string `json:"environment_vars"`
 	Port            int               `json:"port"`
 	SSLEnabled      bool              `json:"ssl_enabled"`
-	SSLEmail        string            `json:"ssl_email,omitempty"`        // Email for Let's Encrypt
-	SSLCert         string            `json:"ssl_cert,omitempty"`         // Base64 encoded cert
-	SSLKey          string            `json:"ssl_key,omitempty"`          // Base64 encoded key
+	SSLEmail        string            `json:"ssl_email,omitempty"` // Email for Let's Encrypt
+	SSLCert         string            `json:"ssl_cert,omitempty"`  // Base64 encoded cert
+	SSLKey          string            `json:"ssl_key,omitempty"`   // Base64 encoded key
 	ConfigFiles     []ConfigFile      `json:"config_files"`
 	TraefikLabels   map[string]string `json:"traefik_labels,omitempty"`
+}
+
+type Docker struct {
+	Credentials DockerCredentials `json:"credentials"`
+	Image       string            `json:"image"`
+}
+
+type DockerCredentials struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type ConfigFile struct {
@@ -57,8 +67,8 @@ type SiteStatusResponse struct {
 
 // HealthResponse returns the health status of the node
 type HealthResponse struct {
-	Status  string      `json:"status"`
-	Docker  *DockerInfo `json:"docker,omitempty"`
+	Status  string       `json:"status"`
+	Docker  *DockerInfo  `json:"docker,omitempty"`
 	Traefik *TraefikInfo `json:"traefik,omitempty"`
 }
 

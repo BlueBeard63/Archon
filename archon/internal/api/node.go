@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/BlueBeard63/archon/internal/models"
 )
 
 // HTTPNodeClient implements NodeClient using standard net/http
@@ -49,21 +49,27 @@ type DeploymentProgressCallback func(msg DeploymentMessage)
 func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, domainName string) error {
 	// Build deploy request
 	req := struct {
-		ID              uuid.UUID         `json:"id"`
-		Name            string            `json:"name"`
-		Domain          string            `json:"domain"`
-		DockerImage     string            `json:"docker_image"`
-		EnvironmentVars map[string]string `json:"environment_vars"`
-		Port            int               `json:"port"`
-		SSLEnabled      bool              `json:"ssl_enabled"`
-		SSLEmail        string            `json:"ssl_email,omitempty"`
+		ID              uuid.UUID           `json:"id"`
+		Name            string              `json:"name"`
+		Domain          string              `json:"domain"`
+		Docker          Docker              `json:"docker"`
+		EnvironmentVars map[string]string   `json:"environment_vars"`
+		Port            int                 `json:"port"`
+		SSLEnabled      bool                `json:"ssl_enabled"`
+		SSLEmail        string              `json:"ssl_email,omitempty"`
 		ConfigFiles     []models.ConfigFile `json:"config_files"`
-		TraefikLabels   map[string]string `json:"traefik_labels,omitempty"`
+		TraefikLabels   map[string]string   `json:"traefik_labels,omitempty"`
 	}{
-		ID:              site.ID,
-		Name:            site.Name,
-		Domain:          domainName,
-		DockerImage:     site.DockerImage,
+		ID:     site.ID,
+		Name:   site.Name,
+		Domain: domainName,
+		Docker: Docker{
+			Image: site.DockerImage,
+			Credentials: DockerCredentials{
+				Username: site.DockerUsername,
+				Password: site.DockerToken,
+			},
+		},
 		EnvironmentVars: site.EnvironmentVars,
 		Port:            site.Port,
 		SSLEnabled:      site.SSLEnabled,
@@ -113,21 +119,27 @@ func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *mode
 
 	// Build deploy request
 	req := struct {
-		ID              uuid.UUID         `json:"id"`
-		Name            string            `json:"name"`
-		Domain          string            `json:"domain"`
-		DockerImage     string            `json:"docker_image"`
-		EnvironmentVars map[string]string `json:"environment_vars"`
-		Port            int               `json:"port"`
-		SSLEnabled      bool              `json:"ssl_enabled"`
-		SSLEmail        string            `json:"ssl_email,omitempty"`
+		ID              uuid.UUID           `json:"id"`
+		Name            string              `json:"name"`
+		Domain          string              `json:"domain"`
+		Docker          Docker              `json:"docker"`
+		EnvironmentVars map[string]string   `json:"environment_vars"`
+		Port            int                 `json:"port"`
+		SSLEnabled      bool                `json:"ssl_enabled"`
+		SSLEmail        string              `json:"ssl_email,omitempty"`
 		ConfigFiles     []models.ConfigFile `json:"config_files"`
-		TraefikLabels   map[string]string `json:"traefik_labels,omitempty"`
+		TraefikLabels   map[string]string   `json:"traefik_labels,omitempty"`
 	}{
-		ID:              site.ID,
-		Name:            site.Name,
-		Domain:          domainName,
-		DockerImage:     site.DockerImage,
+		ID:     site.ID,
+		Name:   site.Name,
+		Domain: domainName,
+		Docker: Docker{
+			Image: site.DockerImage,
+			Credentials: DockerCredentials{
+				Username: site.DockerUsername,
+				Password: site.DockerToken,
+			},
+		},
 		EnvironmentVars: site.EnvironmentVars,
 		Port:            site.Port,
 		SSLEnabled:      site.SSLEnabled,

@@ -84,7 +84,7 @@ func (h *Handlers) HandleDeploySiteWebSocket(w http.ResponseWriter, r *http.Requ
 	log.Printf("========================================")
 
 	// Validate request
-	if req.Name == "" || req.Domain == "" || req.DockerImage == "" {
+	if req.Name == "" || req.Domain == "" || req.Docker.Image == "" {
 		sendError(conn, "Missing required fields")
 		return
 	}
@@ -139,7 +139,7 @@ func (h *Handlers) HandleDeploySiteWebSocket(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Deploy container
-	sendProgress(conn, "Deploying Docker container: "+req.DockerImage, "docker")
+	sendProgress(conn, "Deploying Docker container: "+req.Docker.Image, "docker")
 	deployResp, err := h.dockerClient.DeploySite(ctx, &req, h.dataDir)
 	if err != nil {
 		sendError(conn, "Failed to deploy site: "+err.Error())

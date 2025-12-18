@@ -74,7 +74,7 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 	log.Printf("========================================")
 
 	// Validate request
-	if req.Name == "" || req.Domain == "" || req.DockerImage == "" {
+	if req.Name == "" || req.Domain == "" || req.Docker.Image == "" {
 		respondError(w, http.StatusBadRequest, "Missing required fields")
 		return
 	}
@@ -120,7 +120,7 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Deploy container
-	log.Printf("Deploying Docker container: image=%s, port=%d", req.DockerImage, req.Port)
+	log.Printf("Deploying Docker container: image=%s, port=%d", req.Docker.Image, req.Port)
 	deployResp, err := h.dockerClient.DeploySite(ctx, &req, h.dataDir)
 	if err != nil {
 		log.Printf("[ERROR] Failed to deploy site: %v", err)
