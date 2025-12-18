@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -882,62 +883,73 @@ func (m Model) spawnSetupDNS(siteID uuid.UUID) tea.Cmd {
 			}
 		}
 
-		// Check if a record with the same name exists
-		var existingRecord *models.DnsRecord
-		for i := range existingRecords {
-			if existingRecords[i].Name == fullDomain && existingRecords[i].RecordType == models.DnsRecordTypeA {
-				existingRecord = &existingRecords[i]
-				break
+		targetIP := node.IPAddress.String()
+		var messages []string
+		var failedDomains []string
+
+		// Process all domain mappings
+		for _, mapping := range mappings {
+			fullDomain := models.GetFullDomain(domain.Name, mapping.Subdomain)
+
+			// Check if a record with the same name exists
+			var existingRecord *models.DnsRecord
+			for i := range existingRecords {
+				if existingRecords[i].Name == fullDomain && existingRecords[i].RecordType == models.DnsRecordTypeA {
+					existingRecord = &existingRecords[i]
+					break
+				}
+			}
+
+			if existingRecord != nil {
+				// Record exists - check if it points to the correct IP
+				if existingRecord.Value == targetIP {
+					// Record is already correct
+					messages = append(messages, fmt.Sprintf("✓ DNS record for %s already exists and points to %s", fullDomain, targetIP))
+				} else {
+					// Record points to wrong IP - update it
+					oldValue := existingRecord.Value
+					existingRecord.Value = targetIP
+					_, err = dnsProvider.UpdateRecord(domain.Name, existingRecord, []string{site.Name})
+					if err != nil {
+						failedDomains = append(failedDomains, fullDomain)
+						messages = append(messages, fmt.Sprintf("✗ Failed to update DNS record for %s from %s to %s: %v", fullDomain, oldValue, targetIP, err))
+					} else {
+						messages = append(messages, fmt.Sprintf("✓ DNS record for %s updated to point to %s", fullDomain, targetIP))
+					}
+				}
+			} else {
+				// Record doesn't exist - create it
+				record := models.NewDnsRecord(
+					models.DnsRecordTypeA,
+					fullDomain,
+					targetIP,
+					300, // 5 minute TTL
+				)
+
+				_, err = dnsProvider.CreateRecord(domain.Name, record, []string{site.Name})
+				if err != nil {
+					failedDomains = append(failedDomains, fullDomain)
+					messages = append(messages, fmt.Sprintf("✗ Failed to create DNS record for %s: %v", fullDomain, err))
+				} else {
+					messages = append(messages, fmt.Sprintf("✓ DNS record for %s created successfully pointing to %s", fullDomain, targetIP))
+				}
 			}
 		}
 
-		targetIP := node.IPAddress.String()
-
-		if existingRecord != nil {
-			// Record exists - check if it points to the correct IP
-			if existingRecord.Value == targetIP {
-				// Record is already correct
-				return DNSSetupResultMsg{
-					SiteID:  siteID,
-					Message: fmt.Sprintf("DNS record for %s already exists and points to %s", fullDomain, targetIP),
-					Error:   nil,
-				}
-			} else {
-				// Record points to wrong IP - update it
-				existingRecord.Value = targetIP
-				_, err = dnsProvider.UpdateRecord(domain.Name, existingRecord, []string{site.Name})
-				if err != nil {
-					return DNSSetupResultMsg{
-						SiteID: siteID,
-						Error:  fmt.Errorf("failed to update DNS record for %s from %s to %s: %w", fullDomain, existingRecord.Value, targetIP, err),
-					}
-				}
-				return DNSSetupResultMsg{
-					SiteID:  siteID,
-					Message: fmt.Sprintf("DNS record for %s updated to point to %s. Allow 5-10 minutes for DNS propagation.", fullDomain, targetIP),
-					Error:   nil,
-				}
+		// Return results
+		if len(failedDomains) > 0 {
+			return DNSSetupResultMsg{
+				SiteID: siteID,
+				Message: fmt.Sprintf("Processed %d domain(s) - %d failed. Details:\n%s\n\nAllow 5-10 minutes for DNS propagation.",
+					len(mappings), len(failedDomains), strings.Join(messages, "\n")),
+				Error: fmt.Errorf("failed to setup DNS for %d domain(s): %v", len(failedDomains), failedDomains),
 			}
 		} else {
-			// Record doesn't exist - create it
-			record := models.NewDnsRecord(
-				models.DnsRecordTypeA,
-				fullDomain,
-				targetIP,
-				300, // 5 minute TTL
-			)
-
-			_, err = dnsProvider.CreateRecord(domain.Name, record, []string{site.Name})
-			if err != nil {
-				return DNSSetupResultMsg{
-					SiteID: siteID,
-					Error:  fmt.Errorf("failed to create DNS record for %s: %w", fullDomain, err),
-				}
-			}
 			return DNSSetupResultMsg{
-				SiteID:  siteID,
-				Message: fmt.Sprintf("DNS record for %s created successfully pointing to %s. Allow 5-10 minutes for DNS propagation.", fullDomain, targetIP),
-				Error:   nil,
+				SiteID: siteID,
+				Message: fmt.Sprintf("Successfully processed %d domain(s). Details:\n%s\n\nAllow 5-10 minutes for DNS propagation.",
+					len(mappings), strings.Join(messages, "\n")),
+				Error: nil,
 			}
 		}
 	}
