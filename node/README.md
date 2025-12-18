@@ -264,6 +264,56 @@ Let Traefik handle SSL certificates automatically. Requires Traefik to be proper
 - User must have permission to write to config directory
 - User must have permission to reload Apache
 
+#### Apache with Let's Encrypt
+
+Apache can be used with Let's Encrypt for automatic SSL certificate management. This uses Certbot's webroot validation method to avoid port 80 conflicts.
+
+**Setup Instructions:**
+
+1. **Enable required Apache modules:**
+   ```bash
+   sudo a2enmod rewrite
+   sudo a2enmod proxy
+   sudo a2enmod proxy_http
+   sudo a2enmod headers
+   sudo a2enmod ssl
+   ```
+
+2. **Create webroot directory for Let's Encrypt challenges:**
+   ```bash
+   sudo mkdir -p /var/www/letsencrypt
+   sudo chown www-data:www-data /var/www/letsencrypt
+   sudo chmod 755 /var/www/letsencrypt
+   ```
+
+3. **Use the Apache + Let's Encrypt configuration file:**
+   ```bash
+   cp config-apache-letsencrypt-example.toml /etc/archon/node-config.toml
+   sudo chown root:root /etc/archon/node-config.toml
+   sudo chmod 600 /etc/archon/node-config.toml
+   ```
+
+4. **Update configuration values:**
+   - Change `api_key` to a strong random value
+   - Change email addresses to your actual email
+
+5. **How it works:**
+   - When deploying with SSL, Archon creates a simple HTTP vhost that serves the webroot
+   - Apache is reloaded to enable this temporary configuration
+   - Certbot validates domain ownership by placing a challenge file in the webroot
+   - Once validated, the SSL certificate is obtained from Let's Encrypt
+   - The Apache configuration is updated with the full HTTPS setup
+   - Apache is reloaded with the final configuration
+
+**Troubleshooting Apache + Let's Encrypt:**
+
+If you see "Unable to find a virtual host listening on port 80":
+- Verify Apache is running: `sudo systemctl status apache2`
+- Check that port 80 is accessible: `curl -I http://your-domain.com/`
+- Verify webroot directory: `ls -la /var/www/letsencrypt`
+- Check logs: `sudo tail -f /var/log/apache2/error.log` and `sudo tail -f /var/log/letsencrypt/letsencrypt.log`
+- Test manually: See `config-apache-letsencrypt-example.toml` for manual Certbot commands
+
 ### Traefik Mode
 - Traefik running as a Docker container
 - Traefik configured with Docker provider

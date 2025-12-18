@@ -2,7 +2,6 @@ package docker
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,7 +13,6 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/google/uuid"
@@ -23,7 +21,7 @@ import (
 )
 
 type Client struct {
-	cli        *client.Client
+	cli         *client.Client
 	networkName string
 }
 
@@ -85,22 +83,19 @@ func getAuthConfig(imageName string) (string, error) {
 	// Try to find auth for this registry
 	for reg, auth := range config.Auths {
 		if strings.Contains(reg, registryURL) || reg == registryURL {
-			// Create auth config JSON
-			authConfig := registry.AuthConfig{
-				Auth: auth.Auth,
-			}
-			encoded, _ := json.Marshal(authConfig)
-			return base64.URLEncoding.EncodeToString(encoded), nil
+			// The Auth field is already base64-encoded, return it directly
+			return auth.Auth, nil
 		}
 	}
 
 	// If no specific auth found, try the default Docker Hub entry
 	if auth, ok := config.Auths["https://index.docker.io/v1/"]; ok {
-		authConfig := registry.AuthConfig{
-			Auth: auth.Auth,
-		}
-		encoded, _ := json.Marshal(authConfig)
-		return base64.URLEncoding.EncodeToString(encoded), nil
+		return auth.Auth, nil
+	}
+
+	// Try Docker Hub without https prefix
+	if auth, ok := config.Auths["docker.io"]; ok {
+		return auth.Auth, nil
 	}
 
 	return "", nil // No auth found

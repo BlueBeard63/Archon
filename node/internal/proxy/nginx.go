@@ -88,6 +88,12 @@ type nginxTemplateData struct {
 	KeyPath    string
 }
 
+// ConfigureForValidation is a no-op for Nginx as it doesn't require pre-configuration for Let's Encrypt
+func (n *NginxManager) ConfigureForValidation(ctx context.Context, site *models.DeployRequest) error {
+	// Nginx plugin doesn't require pre-configuration
+	return nil
+}
+
 func (n *NginxManager) Configure(ctx context.Context, site *models.DeployRequest, certPath, keyPath string) error {
 	// Prepare template data
 	data := nginxTemplateData{

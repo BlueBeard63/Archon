@@ -20,6 +20,12 @@ func NewTraefikManager(cfg *config.ProxyConfig, sslCfg *config.SSLConfig) *Traef
 	}
 }
 
+// ConfigureForValidation is a no-op for Traefik as it handles SSL automatically
+func (t *TraefikManager) ConfigureForValidation(ctx context.Context, site *models.DeployRequest) error {
+	// Traefik handles Let's Encrypt automatically
+	return nil
+}
+
 // Configure for Traefik is a no-op because Traefik uses Docker labels
 // The labels are already set on the container when it's deployed
 func (t *TraefikManager) Configure(ctx context.Context, site *models.DeployRequest, certPath, keyPath string) error {
@@ -52,8 +58,8 @@ func (t *TraefikManager) GetInfo(ctx context.Context) (*models.TraefikInfo, erro
 func GenerateTraefikLabels(site *models.DeployRequest) map[string]string {
 	labels := map[string]string{
 		"traefik.enable": "true",
-		fmt.Sprintf("traefik.http.routers.%s.rule", site.Name): fmt.Sprintf("Host(`%s`)", site.Domain),
-		fmt.Sprintf("traefik.http.routers.%s.entrypoints", site.Name): "web",
+		fmt.Sprintf("traefik.http.routers.%s.rule", site.Name):                      fmt.Sprintf("Host(`%s`)", site.Domain),
+		fmt.Sprintf("traefik.http.routers.%s.entrypoints", site.Name):               "web",
 		fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port", site.Name): fmt.Sprintf("%d", site.Port),
 	}
 

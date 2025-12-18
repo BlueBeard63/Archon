@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +29,32 @@ func NewApacheManager(cfg *config.ProxyConfig, sslCfg *config.SSLConfig) *Apache
 	}
 }
 
+// Template for initial Apache configuration on port 80
+// The Apache plugin will modify this configuration to add ACME challenge handling
+const apacheValidationTemplate = `<VirtualHost *:80>
+    ServerName {{ .Domain }}
+
+    # Proxy configuration
+    ProxyPreserveHost On
+    ProxyPass / http://127.0.0.1:{{ .Port }}/
+    ProxyPassReverse / http://127.0.0.1:{{ .Port }}/
+
+    # WebSocket support
+    RewriteEngine On
+    RewriteCond %{HTTP:Upgrade} =websocket [NC]
+    RewriteRule /(.*)           ws://127.0.0.1:{{ .Port }}/$1 [P,L]
+
+    # Request headers
+    RequestHeader set X-Forwarded-Proto "http"
+    RequestHeader set X-Forwarded-Port "80"
+
+    # Access and error logs
+    ErrorLog ${APACHE_LOG_DIR}/{{ .Domain }}_error.log
+    CustomLog ${APACHE_LOG_DIR}/{{ .Domain }}_access.log combined
+</VirtualHost>
+`
+
+// Full Apache configuration template with SSL
 const apacheConfigTemplate = `<VirtualHost *:80>
     ServerName {{ .Domain }}
 
@@ -36,7 +63,28 @@ const apacheConfigTemplate = `<VirtualHost *:80>
     RewriteEngine On
     RewriteCond %{HTTPS} off
     RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+    {{- else }}
+    # Proxy configuration
+    ProxyPreserveHost On
+    ProxyPass / http://127.0.0.1:{{ .Port }}/
+    ProxyPassReverse / http://127.0.0.1:{{ .Port }}/
+
+    # WebSocket support
+    RewriteEngine On
+    RewriteCond %{HTTP:Upgrade} =websocket [NC]
+    RewriteRule /(.*)           ws://127.0.0.1:{{ .Port }}/$1 [P,L]
+
+    # Request headers
+    RequestHeader set X-Forwarded-Proto "http"
+    RequestHeader set X-Forwarded-Port "80"
+    {{- end }}
+
+    # Access and error logs
+    ErrorLog ${APACHE_LOG_DIR}/{{ .Domain }}_error.log
+    CustomLog ${APACHE_LOG_DIR}/{{ .Domain }}_access.log combined
 </VirtualHost>
+
+{{- if .SSLEnabled }}
 
 <VirtualHost *:443>
     ServerName {{ .Domain }}
@@ -54,7 +102,6 @@ const apacheConfigTemplate = `<VirtualHost *:80>
     Header always set X-Frame-Options "SAMEORIGIN"
     Header always set X-Content-Type-Options "nosniff"
     Header always set X-XSS-Protection "1; mode=block"
-    {{- end }}
 
     # Proxy configuration
     ProxyPreserveHost On
@@ -74,6 +121,8 @@ const apacheConfigTemplate = `<VirtualHost *:80>
     ErrorLog ${APACHE_LOG_DIR}/{{ .Domain }}_error.log
     CustomLog ${APACHE_LOG_DIR}/{{ .Domain }}_access.log combined
 </VirtualHost>
+
+{{- end }}
 `
 
 type apacheTemplateData struct {
@@ -82,6 +131,71 @@ type apacheTemplateData struct {
 	SSLEnabled bool
 	CertPath   string
 	KeyPath    string
+}
+
+// ConfigureForValidation configures Apache with a simple HTTP vhost for Let's Encrypt validation
+// This is called before certificate generation to allow Certbot to validate domain ownership
+func (a *ApacheManager) ConfigureForValidation(ctx context.Context, site *models.DeployRequest) error {
+	log.Printf("[ConfigureForValidation] Called for domain: %s, SSLMode: %v, SSLEnabled: %v", site.Domain, a.sslMode, site.SSLEnabled)
+
+	// Only needed for Let's Encrypt mode
+	if a.sslMode != config.SSLModeLetsEncrypt {
+		log.Printf("[ConfigureForValidation] Skipping - not using Let's Encrypt mode")
+		return nil
+	}
+
+	// Only needed for SSL-enabled sites
+	if !site.SSLEnabled {
+		log.Printf("[ConfigureForValidation] Skipping - SSL not enabled")
+		return nil
+	}
+
+	log.Printf("[ConfigureForValidation] Creating validation vhost for: %s", site.Domain)
+
+	// Create webroot directory if it doesn't exist
+	webrootPath := "/var/www/letsencrypt"
+	if err := os.MkdirAll(webrootPath, 0755); err != nil {
+		return fmt.Errorf("failed to create webroot directory: %w", err)
+	}
+	log.Printf("[ConfigureForValidation] Webroot directory created/verified: %s", webrootPath)
+
+	// Prepare validation template data (no SSL info yet)
+	data := apacheTemplateData{
+		Domain:     site.Domain,
+		Port:       site.Port,
+		SSLEnabled: false,
+	}
+
+	// Parse validation template
+	tmpl, err := template.New("apache-validation").Parse(apacheValidationTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse apache validation template: %w", err)
+	}
+
+	// Create config file
+	configPath := filepath.Join(a.configDir, fmt.Sprintf("%s.conf", site.Domain))
+	log.Printf("[ConfigureForValidation] Writing config to: %s", configPath)
+	file, err := os.Create(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to create apache config file: %w", err)
+	}
+	defer file.Close()
+
+	// Execute template
+	if err := tmpl.Execute(file, data); err != nil {
+		return fmt.Errorf("failed to execute apache validation template: %w", err)
+	}
+
+	log.Printf("[ConfigureForValidation] Validation vhost configured successfully")
+	cmd := exec.CommandContext(ctx, "apache2ctl", "configtest")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		// Apache configtest returns error even on success sometimes, check output
+		if !contains(string(output), "Syntax OK") {
+			return fmt.Errorf("apache config test failed: %s", string(output))
+		}
+	}
+
+	return nil
 }
 
 func (a *ApacheManager) Configure(ctx context.Context, site *models.DeployRequest, certPath, keyPath string) error {

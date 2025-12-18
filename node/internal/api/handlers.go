@@ -84,6 +84,22 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if req.SSLEnabled {
 		log.Printf("Setting up SSL certificate for domain: %s (email: %s)", req.Domain, req.SSLEmail)
+		log.Printf("[DEBUG] ProxyManager type: %T", h.proxyManager)
+		// For Let's Encrypt, configure proxy first to serve validation challenges
+		log.Printf("Configuring reverse proxy for Let's Encrypt validation")
+		if err := h.proxyManager.ConfigureForValidation(ctx, &req); err != nil {
+			log.Printf("[ERROR] Failed to configure proxy for validation: %v", err)
+			respondError(w, http.StatusInternalServerError, "Failed to configure proxy for validation: "+err.Error())
+			return
+		}
+
+		// Reload proxy with validation configuration
+		log.Printf("Reloading reverse proxy with validation configuration")
+		if err := h.proxyManager.Reload(ctx); err != nil {
+			log.Printf("[ERROR] Failed to reload proxy: %v", err)
+			respondError(w, http.StatusInternalServerError, "Failed to reload proxy: "+err.Error())
+			return
+		}
 
 		// Wait for DNS propagation before attempting SSL certificate
 		log.Printf("Waiting for DNS propagation for: %s", req.Domain)

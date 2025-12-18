@@ -12,6 +12,10 @@ import (
 
 // ProxyManager defines the interface for reverse proxy management
 type ProxyManager interface {
+	// ConfigureForValidation sets up minimal proxy configuration for Let's Encrypt validation
+	// This is called before certificate generation for Let's Encrypt mode
+	ConfigureForValidation(ctx context.Context, site *models.DeployRequest) error
+
 	// Configure sets up the proxy configuration for a site
 	Configure(ctx context.Context, site *models.DeployRequest, certPath, keyPath string) error
 

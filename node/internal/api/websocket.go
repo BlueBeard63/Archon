@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -95,20 +97,45 @@ func (h *Handlers) HandleDeploySiteWebSocket(w http.ResponseWriter, r *http.Requ
 	if req.SSLEnabled {
 		sendProgress(conn, "Setting up SSL certificate for domain: "+req.Domain, "ssl")
 
-		// Wait for DNS propagation before attempting SSL certificate
-		sendProgress(conn, "Waiting for DNS propagation for: "+req.Domain, "ssl")
-		if err := waitForDNSPropagation(req.Domain, 60*time.Second); err != nil {
-			sendError(conn, "DNS propagation timeout for "+req.Domain+": "+err.Error())
-			return
-		}
-		sendProgress(conn, "DNS propagation verified for: "+req.Domain, "ssl")
+		// Check if certificate already exists
+		certPath = filepath.Join("/etc/letsencrypt/live", req.Domain, "fullchain.pem")
+		keyPath = filepath.Join("/etc/letsencrypt/live", req.Domain, "privkey.pem")
 
-		certPath, keyPath, err = h.sslManager.EnsureCertificate(ctx, req.ID, req.Domain, req.SSLCert, req.SSLKey, req.SSLEmail)
-		if err != nil {
-			sendError(conn, "Failed to setup SSL: "+err.Error())
-			return
+		certExists := fileExists(certPath)
+		keyExists := fileExists(keyPath)
+
+		if certExists && keyExists {
+			sendProgress(conn, "SSL certificate already exists for domain: "+req.Domain, "ssl")
+		} else {
+			// For Let's Encrypt, configure proxy first to serve validation challenges
+			sendProgress(conn, "Configuring reverse proxy for Let's Encrypt validation", "ssl")
+			if err := h.proxyManager.ConfigureForValidation(ctx, &req); err != nil {
+				sendError(conn, "Failed to configure proxy for validation: "+err.Error())
+				return
+			}
+
+			// Reload proxy with validation configuration
+			sendProgress(conn, "Reloading reverse proxy with validation configuration", "ssl")
+			if err := h.proxyManager.Reload(ctx); err != nil {
+				sendError(conn, "Failed to reload proxy: "+err.Error())
+				return
+			}
+
+			// Wait for DNS propagation before attempting SSL certificate
+			sendProgress(conn, "Waiting for DNS propagation for: "+req.Domain, "ssl")
+			if err := waitForDNSPropagation(req.Domain, 60*time.Second); err != nil {
+				sendError(conn, "DNS propagation timeout for "+req.Domain+": "+err.Error())
+				return
+			}
+			sendProgress(conn, "DNS propagation verified for: "+req.Domain, "ssl")
+
+			_, _, err = h.sslManager.EnsureCertificate(ctx, req.ID, req.Domain, req.SSLCert, req.SSLKey, req.SSLEmail)
+			if err != nil {
+				sendError(conn, "Failed to setup SSL: "+err.Error())
+				return
+			}
+			sendProgress(conn, "SSL certificate obtained successfully", "ssl")
 		}
-		sendProgress(conn, "SSL certificate obtained successfully", "ssl")
 	}
 
 	// Deploy container
@@ -137,16 +164,28 @@ func (h *Handlers) HandleDeploySiteWebSocket(w http.ResponseWriter, r *http.Requ
 
 	// Configure reverse proxy
 	sendProgress(conn, "Configuring reverse proxy for domain: "+req.Domain, "proxy")
-	if err := h.proxyManager.Configure(ctx, &req, certPath, keyPath); err != nil {
-		sendError(conn, "Failed to configure proxy: "+err.Error())
-		return
-	}
 
-	// Reload proxy
-	sendProgress(conn, "Reloading reverse proxy", "proxy")
-	if err := h.proxyManager.Reload(ctx); err != nil {
-		sendError(conn, "Failed to reload proxy: "+err.Error())
-		return
+	// Check if proxy config already exists
+	proxyConfigPath := filepath.Join("/etc/apache2/sites-enabled", req.Domain+".conf") // For Apache
+	// Also check nginx path as fallback
+	nginxConfigPath := filepath.Join("/etc/nginx/sites-enabled", req.Domain)
+
+	proxyExists := fileExists(proxyConfigPath) || fileExists(nginxConfigPath)
+
+	if proxyExists {
+		sendProgress(conn, "Proxy configuration already exists for domain: "+req.Domain, "proxy")
+	} else {
+		if err := h.proxyManager.Configure(ctx, &req, certPath, keyPath); err != nil {
+			sendError(conn, "Failed to configure proxy: "+err.Error())
+			return
+		}
+
+		// Reload proxy
+		sendProgress(conn, "Reloading reverse proxy", "proxy")
+		if err := h.proxyManager.Reload(ctx); err != nil {
+			sendError(conn, "Failed to reload proxy: "+err.Error())
+			return
+		}
 	}
 
 	// Send success message with response
@@ -197,4 +236,10 @@ func sendSuccess(conn *websocket.Conn, message string, response *models.DeployRe
 
 	// Give client time to receive messages before closing
 	time.Sleep(100 * time.Millisecond)
+}
+
+// fileExists checks if a file exists
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

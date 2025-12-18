@@ -1,0 +1,132 @@
+# Archon Node Configuration - Apache with Let's Encrypt SSL
+
+[server]
+host = "0.0.0.0"
+port = 8080
+
+# IMPORTANT: Set a strong, random API key
+api_key = "CHANGE-ME-TO-A-SECURE-RANDOM-KEY"
+
+data_dir = "/var/lib/archon"
+
+[proxy]
+type = "apache"
+
+# Directory where Apache site configurations are stored
+config_dir = "/etc/apache2/sites-enabled"
+
+# Command to reload Apache after configuration changes
+reload_command = "apache2ctl graceful"
+
+[docker]
+host = "unix:///var/run/docker.sock"
+network = "archon-net"
+
+# ==============================================================================
+# SSL Configuration with Let's Encrypt
+# ==============================================================================
+# This configuration uses Let's Encrypt with Certbot for automatic SSL certificates
+# via webroot validation (Certbot --webroot mode).
+#
+# IMPORTANT: The webroot directory must exist and be readable by Apache:
+#   sudo mkdir -p /var/www/letsencrypt
+#   sudo chown www-data:www-data /var/www/letsencrypt
+#   sudo chmod 755 /var/www/letsencrypt
+
+[ssl]
+mode = "letsencrypt"
+cert_dir = "/etc/archon/ssl"
+email = "admin@example.com"  # CHANGE THIS to your email for Let's Encrypt notifications
+
+[letsencrypt]
+enabled = true
+email = "admin@example.com"  # CHANGE THIS to your email for Let's Encrypt notifications
+staging_mode = false  # Set to true for testing (uses staging CA, no rate limits)
+
+# ==============================================================================
+# Setup Instructions for Apache + Let's Encrypt
+# ==============================================================================
+#
+# 1. Prerequisites:
+#    - Apache2 with modules: mod_rewrite, mod_proxy, mod_headers, mod_ssl
+#    - Certbot installed: sudo apt install certbot python3-certbot-apache
+#    - Port 80 accessible from the internet (required for ACME validation)
+#
+# 2. Enable required Apache modules:
+#    sudo a2enmod rewrite
+#    sudo a2enmod proxy
+#    sudo a2enmod proxy_http
+#    sudo a2enmod headers
+#    sudo a2enmod ssl
+#    sudo a2enmod rewrite
+#
+# 3. Create webroot directory for Let's Encrypt challenges:
+#    sudo mkdir -p /var/www/letsencrypt
+#    sudo chown www-data:www-data /var/www/letsencrypt
+#    sudo chmod 755 /var/www/letsencrypt
+#
+# 4. Update this config file:
+#    - Set api_key to a secure random string
+#    - Change email addresses to your email
+#    - Adjust paths if needed for your setup
+#
+# 5. Copy to system location:
+#    sudo cp config-apache-letsencrypt-example.toml /etc/archon/node-config.toml
+#    sudo chown root:root /etc/archon/node-config.toml
+#    sudo chmod 600 /etc/archon/node-config.toml
+#
+# 6. (Optional) Test staging mode first:
+#    Set staging_mode = true in [letsencrypt] section
+#    This uses Let's Encrypt's staging CA with no rate limits
+#    Switch back to staging_mode = false once deployment works
+#
+# ==============================================================================
+# How It Works
+# ==============================================================================
+#
+# When deploying with SSL enabled:
+#
+# 1. Archon creates a simple HTTP vhost that serves the webroot directory
+# 2. Apache is reloaded to enable the temporary configuration
+# 3. Certbot validates domain ownership by placing a challenge file in the
+#    webroot directory that Let's Encrypt's servers can access
+# 4. Once validated, the SSL certificate is obtained from Let's Encrypt
+# 5. The Apache configuration is updated with the full HTTPS setup including
+#    SSL directives and the certificate paths
+# 6. Apache is reloaded again with the final configuration
+#
+# This two-stage process avoids conflicts with port 80 that would occur if
+# trying to use the --apache plugin before the configuration is set up.
+#
+# ==============================================================================
+# Troubleshooting
+# ==============================================================================
+#
+# If certificate generation fails with "Unable to find a virtual host on port 80":
+#
+# 1. Verify Apache is running:
+#    sudo systemctl status apache2
+#
+# 2. Check if port 80 is accessible from the internet:
+#    curl -I http://your-domain.example.com/
+#
+# 3. Verify the webroot directory exists and is readable:
+#    ls -la /var/www/letsencrypt
+#
+# 4. Check Apache error logs:
+#    sudo tail -f /var/log/apache2/error.log
+#
+# 5. Check Certbot logs:
+#    sudo tail -f /var/log/letsencrypt/letsencrypt.log
+#
+# 6. Test Certbot manually with verbose output:
+#    sudo certbot certonly --webroot --webroot-path /var/www/letsencrypt \
+#      --non-interactive --agree-tos --email your-email@example.com \
+#      -d your-domain.example.com -v
+#
+# 7. For testing, use staging mode first:
+#    sudo certbot certonly --webroot --webroot-path /var/www/letsencrypt \
+#      --staging --non-interactive --agree-tos \
+#      --email your-email@example.com -d your-domain.example.com
+#
+# ==============================================================================

@@ -115,7 +115,7 @@ func (m *Manager) handleLetsEncrypt(ctx context.Context, domain string, email st
 			"-d", domain,
 		)
 	case config.ProxyTypeApache:
-		// Use apache plugin - it works with running apache without modifying configs
+		// Use apache plugin now that ConfigureForValidation has created the port 80 vhost
 		cmd = exec.CommandContext(ctx,
 			"certbot", "certonly",
 			"--apache",
