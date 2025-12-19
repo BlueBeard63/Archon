@@ -1,105 +1,208 @@
-# Archon - Docker Site Management Platform
+<div align="center">
 
-Archon is a complete Docker-based web hosting management platform consisting of a powerful Terminal UI (TUI) client and remote node servers for managing multiple sites across different servers.
+<img src="imgs/Archon.png" alt="Archon Logo" width="600"/>
+
+# Archon
+
+### Docker Site Management Platform
+
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey)]()
+
+**A powerful Terminal UI client and distributed node system for managing Docker-based web hosting across multiple servers.**
+
+[🌐 Project Page](https://jack-morrison.dev/projects/archon) · [📖 Documentation](#documentation) · [🚀 Quick Start](#quick-start)
+
+</div>
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage Guide](#usage-guide)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+- [API Documentation](#api-documentation)
+- [Troubleshooting](#troubleshooting)
+- [Security](#security)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## Overview
+
+Archon simplifies the complexity of managing Docker containers across multiple servers. Whether you're running a single server or orchestrating deployments across a fleet of nodes, Archon provides a unified interface for:
+
+- **Deploying containerized applications** with automatic reverse proxy configuration
+- **Managing SSL certificates** via Let's Encrypt or manual upload
+- **Configuring DNS records** through Cloudflare, Route53, or manual management
+- **Monitoring container health** and deployment status in real-time
+
+---
 
 ## Architecture
 
+### System Flow
+
+Archon follows a **client-node architecture** where the TUI client communicates with remote node servers via REST API and WebSocket connections.
+
+**1. TUI Client Layer**
+- Beautiful terminal interface built with [Bubbletea](https://github.com/charmbracelet/bubbletea)
+- Manages sites, domains, and node configurations
+- Sends deployment commands to remote nodes
+- Receives real-time progress updates via WebSocket
+
+**2. Node Server Layer**
+- Runs on each hosting server
+- Orchestrates Docker container lifecycle
+- Configures reverse proxies (Nginx/Apache/Traefik)
+- Manages SSL certificates automatically
+
+**3. Deployment Flow**
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Archon TUI Client                       │
-│  (Terminal User Interface for Management)                   │
-│  - Manage Sites, Domains, and Nodes                         │
-│  - Configure DNS records                                    │
-│  - Deploy and monitor containers                            │
-│  - Mouse & keyboard navigation                              │
-└──────────────────┬──────────────────────────────────────────┘
-                   │ REST API
-                   │
-     ┌─────────────┼─────────────┬─────────────┐
-     │             │             │             │
-     ▼             ▼             ▼             ▼
-┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐
-│  Node 1 │   │  Node 2 │   │  Node 3 │   │  Node N │
-│─────────│   │─────────│   │─────────│   │─────────│
-│ Nginx   │   │ Apache  │   │ Traefik │   │ Custom  │
-│ Docker  │   │ Docker  │   │ Docker  │   │ Docker  │
-│ Sites   │   │ Sites   │   │ Sites   │   │ Sites   │
-└─────────┘   └─────────┘   └─────────┘   └─────────┘
+User → TUI → Node API → Docker + Proxy + SSL
 ```
+When you deploy a site:
+1. TUI sends deployment request to the target node
+2. Node pulls the Docker image
+3. Container is created with proper networking
+4. Reverse proxy is configured for the domain
+5. SSL certificate is obtained (if enabled)
+6. Status is reported back to TUI in real-time
+
+<br />
+
+<img src="imgs/architecture/TUI site flow.png" alt="Archon Architecture Diagram" width="100%"/>
+
+### Project Architecture 
+<br />
+
+<img src="imgs/architecture/new-architecture.png" alt="Archon Architecture Diagram" width="100%"/>
+
+<br/>
+
+**Communication Protocols:**
+- **REST API** — Standard operations (deploy, stop, restart, delete)
+- **WebSocket** — Real-time deployment progress with step-by-step feedback
+
+**Supported Reverse Proxies:**
+- Nginx
+- Apache
+- Traefik (with Docker provider)
+
+**SSL Modes:**
+- Let's Encrypt (automatic)
+- Manual certificate upload
+- Traefik auto-managed
+
+---
 
 ## Features
 
 ### Archon TUI Client
 
-- **Modern Terminal UI**: Beautiful, mouse-enabled interface built with [Bubbletea](https://github.com/charmbracelet/bubbletea) and [Lipgloss](https://github.com/charmbracelet/lipgloss)
-- **Tab Navigation**: Click or use keyboard to navigate between Dashboard, Sites, Domains, and Nodes
-- **Site Management**: Create, deploy, and manage Docker-based websites
-- **Domain Management**: Configure domains with DNS provider integration (Cloudflare, Route53, Manual)
-- **Node Management**: Manage multiple remote servers from one interface
-- **Configuration Files**: Attach custom config files to containers for nginx.conf, php.ini, etc.
-- **Real-time Status**: Monitor deployment status, container health, and node availability
-- **Mouse Support**: Full mouse support with clickable tabs and form fields
+| Feature | Description |
+|---------|-------------|
+| 🖥️ **Modern Terminal UI** | Beautiful, mouse-enabled interface built with [Bubbletea](https://github.com/charmbracelet/bubbletea) and [Lipgloss](https://github.com/charmbracelet/lipgloss) |
+| 🗂️ **Tab Navigation** | Click or use keyboard to navigate between Dashboard, Sites, Domains, and Nodes |
+| 🚀 **Site Management** | Create, deploy, and manage Docker-based websites |
+| 🌐 **Domain Management** | Configure domains with DNS provider integration (Cloudflare, Route53, Manual) |
+| 🖧 **Node Management** | Manage multiple remote servers from one interface |
+| 📄 **Configuration Files** | Attach custom config files to containers (nginx.conf, php.ini, etc.) |
+| 📊 **Real-time Status** | Monitor deployment status, container health, and node availability |
+| 🖱️ **Mouse Support** | Full mouse support with clickable tabs and form fields |
 
 ### Archon Node Server
 
-- **Docker Integration**: Deploy and manage Docker containers with automatic networking
-- **Multiple Reverse Proxies**: Choose from Nginx, Apache, or Traefik
-- **SSL Management**:
-  - **Manual Mode**: Upload your own SSL certificates
-  - **Let's Encrypt**: Automatic SSL certificate generation with certbot
-  - **Traefik Auto**: Let Traefik handle SSL automatically
-- **REST API**: Full API for remote management and automation
-- **Health Monitoring**: Track Docker status, proxy health, and container metrics
-- **Config File Support**: Inject custom configuration files into containers
+| Feature | Description |
+|---------|-------------|
+| 🐳 **Docker Integration** | Deploy and manage containers with automatic networking |
+| 🔄 **Multiple Proxies** | Choose from Nginx, Apache, or Traefik |
+| 🔒 **SSL Management** | Manual upload, Let's Encrypt auto-renewal, or Traefik-managed |
+| 🔌 **REST API** | Full API for remote management and automation |
+| 💓 **Health Monitoring** | Track Docker status, proxy health, and container metrics |
+| ⚙️ **Config Injection** | Mount custom configuration files into containers |
+
+---
 
 ## Screenshots
 
-![Dashboard](imgs/Screenshot_2025-11-28_140216.png)
-![Sites Management](imgs/Screenshot_2025-11-28_143617.png)
-![Domain Configuration](imgs/Screenshot_2025-11-29_115354.png)
+<table>
+<tr>
+<td align="center" width="50%">
+<img src="imgs/screens/dashboard-screen.png" alt="Dashboard" width="100%"/>
+<br/><b>Dashboard</b> — System overview and quick actions
+</td>
+<td align="center" width="50%">
+<img src="imgs/screens/sites-screen.png" alt="Sites Management" width="100%"/>
+<br/><b>Sites</b> — Manage deployed applications
+</td>
+</tr>
+<tr>
+<td align="center">
+<img src="imgs/screens/domain-screen.png" alt="Domain Configuration" width="100%"/>
+<br/><b>Domains</b> — DNS and domain configuration
+</td>
+<td align="center">
+<img src="imgs/screens/nodes-screen.png" alt="Nodes Management" width="100%"/>
+<br/><b>Nodes</b> — Remote server management
+</td>
+</tr>
+</table>
+
+<details>
+<summary><b>View More Screenshots</b></summary>
+<br/>
+<table>
+<tr>
+<td align="center" width="50%">
+<img src="imgs/screens/settings-screen.png" alt="Settings" width="100%"/>
+<br/><b>Settings</b> — Application configuration
+</td>
+<td align="center" width="50%">
+<img src="imgs/screens/help-screen.png" alt="Help Screen" width="100%"/>
+<br/><b>Help</b> — Keyboard shortcuts and documentation
+</td>
+</tr>
+</table>
+</details>
+
+---
 
 ## Quick Start
 
-### 1. Install Archon TUI Client
+### Option 1: Using Install Script (Recommended)
 
 ```bash
 # Clone the repository
 git clone https://github.com/BlueBeard63/Archon.git
-cd Archon
+cd Archon/archon
 
-# Build the TUI client
-cd archon
-go build -o archon
-
-# Install to system path (optional)
-sudo cp archon /usr/local/bin/
-sudo chmod +x /usr/local/bin/archon
+# Run the install script
+./install.sh
 ```
 
-### 2. Setup Archon Node Server
-
-On each remote server where you want to host sites:
+### Option 2: Manual Installation
 
 ```bash
-# Build the node server
-cd node
-go build -o archon-node
+# Clone the repository
+git clone https://github.com/BlueBeard63/Archon.git
+cd Archon/archon
 
-# Install to system path
-sudo cp archon-node /usr/local/bin/
-sudo chmod +x /usr/local/bin/archon-node
-
-# Create configuration directory
-sudo mkdir -p /etc/archon
-
-# Create configuration file (see Configuration section below)
-sudo nano /etc/archon/node-config.toml
-
-# Run the node server
-archon-node --config /etc/archon/node-config.toml
+# Build and install
+go build -o archon
+sudo cp archon /usr/local/bin/
 ```
 
-### 3. Launch Archon TUI
+### Launch Archon
 
 ```bash
 archon
@@ -107,48 +210,68 @@ archon
 
 On first launch, Archon creates a default configuration at `~/.config/archon/config.toml`.
 
+> 📘 **Setting up Node Servers?** See the [Node Server Setup](#setting-up-a-new-node) section or the detailed [Node README](node/README.md).
+
+---
+
 ## Installation
 
 ### Prerequisites
 
-- **Go 1.22+** (for building from source)
-- **Terminal with mouse support** (most modern terminals)
+| Component | Requirement |
+|-----------|-------------|
+| **Go** | 1.22+ (for building from source) |
+| **Terminal** | Mouse support recommended (iTerm2, Windows Terminal, Alacritty) |
+| **Docker** | Required on node servers |
 
 ### TUI Client Dependencies
 
 The client uses the following Go packages (automatically installed via `go build`):
-- `github.com/charmbracelet/bubbletea` - TUI framework
-- `github.com/charmbracelet/lipgloss` - Styling
-- `github.com/charmbracelet/bubbles` - UI components
-- `github.com/lrstanley/bubblezone` - Mouse zone support
-- `github.com/google/uuid` - UUID generation
-- `github.com/pelletier/go-toml/v2` - TOML configuration
+
+| Package | Purpose |
+|---------|---------|
+| `github.com/charmbracelet/bubbletea` | TUI framework |
+| `github.com/charmbracelet/lipgloss` | Terminal styling |
+| `github.com/charmbracelet/bubbles` | UI components |
+| `github.com/lrstanley/bubblezone` | Mouse zone support |
+| `github.com/google/uuid` | UUID generation |
+| `github.com/pelletier/go-toml/v2` | TOML configuration |
 
 ### Node Server Requirements
 
-**All Modes:**
-- Docker installed and running
-- Go 1.22+ (for building)
+<details>
+<summary><b>Nginx Mode</b></summary>
 
-**Nginx Mode:**
 - Nginx installed
 - Permission to write to nginx config directory
 - Permission to reload nginx
+</details>
 
-**Apache Mode:**
+<details>
+<summary><b>Apache Mode</b></summary>
+
 - Apache2 installed with `mod_proxy` and `mod_ssl` enabled
 - Permission to write to apache config directory
 - Permission to reload apache
+</details>
 
-**Traefik Mode:**
+<details>
+<summary><b>Traefik Mode</b></summary>
+
 - Traefik running as a Docker container
 - Traefik configured with Docker provider
 - Docker socket mounted to Traefik
+</details>
 
-**Let's Encrypt Mode:**
+<details>
+<summary><b>Let's Encrypt SSL</b></summary>
+
 - Certbot installed
 - Port 80 accessible from internet
 - Valid domain pointing to server
+</details>
+
+---
 
 ## Configuration
 
@@ -325,28 +448,26 @@ type = "manual"
 ### Managing DNS Records
 
 1. Navigate to **Domains** tab
-2. Select a domain
-3. View DNS records for the domain
-4. Add/edit/delete records as needed
-5. For Cloudflare/Route53: Changes sync automatically
-6. For Manual DNS: Configure records at your DNS provider manually
+2. Select a domain and view DNS records
+3. Add/edit/delete records as needed
+4. For Cloudflare/Route53: Changes sync automatically
+5. For Manual DNS: Configure records at your DNS provider manually
 
 ### SSL Certificate Management
 
 SSL is handled automatically by the node server based on its configuration:
 
-- **Let's Encrypt Mode**: Certificates are generated automatically when site is deployed
-- **Traefik Auto Mode**: Traefik handles SSL via Docker labels
-- **Manual Mode**: Upload certificates when deploying the site
+| Mode | Behavior |
+|------|----------|
+| **Let's Encrypt** | Certificates generated automatically on deployment |
+| **Traefik Auto** | Traefik handles SSL via Docker labels |
+| **Manual** | Upload your own certificates when deploying |
 
 ### Attaching Configuration Files
 
-When creating a site, you can attach custom configuration files that will be mounted into the container:
+Mount custom configuration files into containers:
 
 ```toml
-[[sites]]
-# ... other site config ...
-
 [[sites.config_files]]
 name = "nginx.conf"
 container_path = "/etc/nginx/nginx.conf"
@@ -354,60 +475,64 @@ content = """
 server {
     listen 80;
     server_name example.com;
-    # ... your nginx config ...
 }
-"""
-
-[[sites.config_files]]
-name = "php.ini"
-container_path = "/usr/local/etc/php/php.ini"
-content = """
-upload_max_filesize = 64M
-post_max_size = 64M
 """
 ```
 
+---
+
 ## Keyboard Shortcuts
 
+<table>
+<tr>
+<td width="50%" valign="top">
+
 ### Global
-- `Ctrl+C` / `q`: Quit application
-- `Esc`: Go back / Cancel
-- `?`: Show help screen
+| Key | Action |
+|-----|--------|
+| `Ctrl+C` / `q` | Quit application |
+| `Esc` | Go back / Cancel |
+| `?` | Show help screen |
 
 ### Navigation
-- `0` / `Tab`: Dashboard
-- `1` / `s`: Sites
-- `2` / `d`: Domains
-- `3` / `n`: Nodes
-- **Or click on tabs with your mouse!**
+| Key | Action |
+|-----|--------|
+| `0` / `Tab` | Dashboard |
+| `1` / `s` | Sites |
+| `2` / `d` | Domains |
+| `3` / `n` | Nodes |
+
+</td>
+<td width="50%" valign="top">
 
 ### Lists
-- `n` / `c`: Create new item
-- `Enter`: View details
-- `d`: Delete selected item
+| Key | Action |
+|-----|--------|
+| `n` / `c` | Create new item |
+| `Enter` | View details |
+| `d` | Delete selected item |
 
 ### Forms
-- `Tab` / `Shift+Tab`: Navigate between fields
-- **Or click on fields with your mouse!**
-- Type to input text
-- `Backspace`: Delete character
-- `Enter`: Submit form
-- `Esc`: Cancel
+| Key | Action |
+|-----|--------|
+| `Tab` / `Shift+Tab` | Navigate fields |
+| `Enter` | Submit form |
+| `Esc` | Cancel |
 
-## Mouse Support
+</td>
+</tr>
+</table>
 
-Archon TUI features full mouse support powered by [bubblezone](https://github.com/lrstanley/bubblezone):
+> 🖱️ **Mouse Support**: Click on tabs, form fields, and menu items. Works in iTerm2, Windows Terminal, Alacritty, and most modern terminals.
 
-- **Click on tabs** to navigate between screens
-- **Click on form fields** to focus and edit them
-- **Click on menu items** to trigger actions
-- Works in most modern terminals (iTerm2, Windows Terminal, Alacritty, etc.)
+---
 
-## Systemd Service for Node Server
+## Systemd Service
 
-Create `/etc/systemd/system/archon-node.service`:
+Run the node server as a systemd service for production deployments:
 
 ```ini
+# /etc/systemd/system/archon-node.service
 [Unit]
 Description=Archon Node Server
 After=network.target docker.service
@@ -423,47 +548,49 @@ RestartSec=5s
 WantedBy=multi-user.target
 ```
 
-Enable and start:
-
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable archon-node
 sudo systemctl start archon-node
-sudo systemctl status archon-node
 ```
+
+---
 
 ## DNS Provider Setup
 
-### Cloudflare
+<details>
+<summary><b>Cloudflare</b></summary>
 
 1. Log in to Cloudflare dashboard
 2. Go to **My Profile** > **API Tokens**
-3. Create token with:
-   - Zone - DNS - Edit permissions
-   - Specific zone access
+3. Create token with Zone - DNS - Edit permissions
 4. Copy the token and zone ID
 5. Add to domain configuration in `config.toml`
+</details>
 
-### Route53
+<details>
+<summary><b>Route53</b></summary>
 
 1. Create IAM user with `route53:ChangeResourceRecordSets` permission
 2. Generate access key and secret key
 3. Note your hosted zone ID
 4. Add to domain configuration in `config.toml`
+</details>
 
-### Manual DNS
+<details>
+<summary><b>Manual DNS</b></summary>
 
-For providers not yet supported, use manual mode:
-1. Create domain with manual DNS
-2. Add DNS records in Archon (for tracking)
-3. Manually configure records at your DNS provider
-4. Archon will track the records but not sync them
+For providers not yet supported, use manual mode. Archon will track records locally but won't sync them—configure at your DNS provider manually.
+</details>
+
+---
 
 ## API Documentation
 
 The node server exposes a REST API for automation. See [node/README.md](node/README.md) for full API documentation.
 
-### Quick API Examples
+<details>
+<summary><b>Quick API Examples</b></summary>
 
 ```bash
 # Deploy a site
@@ -486,39 +613,47 @@ curl http://node-server:8080/health
 curl http://node-server:8080/api/v1/sites/{siteID}/status \
   -H "Authorization: Bearer your-api-key"
 ```
+</details>
+
+---
 
 ## Troubleshooting
 
-### TUI Client Issues
+<details>
+<summary><b>TUI Client Issues</b></summary>
 
 **Config file not found:**
 ```bash
-# Create config directory
 mkdir -p ~/.config/archon
-
-# Archon will create default config on first run
-archon
+archon  # Will create default config on first run
 ```
 
 **Mouse clicks not working:**
-- Ensure your terminal supports mouse events (iTerm2, Windows Terminal, Alacritty, etc.)
-- Try a different terminal emulator
+- Ensure your terminal supports mouse events
+- Try iTerm2, Windows Terminal, or Alacritty
 - Check terminal settings for mouse support
+</details>
 
-### Node Server Issues
+<details>
+<summary><b>Node Connection Issues</b></summary>
 
-**Cannot connect to node:**
 - Verify node server is running: `systemctl status archon-node`
 - Check firewall allows port 8080
 - Verify API endpoint URL is correct
 - Ensure API key matches between TUI config and node config
+</details>
 
-**Docker deployment fails:**
+<details>
+<summary><b>Docker Deployment Issues</b></summary>
+
 - Check Docker is running: `systemctl status docker`
 - Verify Docker socket is accessible: `docker ps`
 - Check container logs for errors
+</details>
 
-**SSL certificate errors:**
+<details>
+<summary><b>SSL Certificate Errors</b></summary>
+
 ```bash
 # Check certbot logs (Let's Encrypt mode)
 sudo tail -f /var/log/letsencrypt/letsencrypt.log
@@ -526,12 +661,14 @@ sudo tail -f /var/log/letsencrypt/letsencrypt.log
 # Verify domain points to server
 dig example.com
 
-# Test with staging mode first
-[letsencrypt]
-staging_mode = true
+# Test with staging mode first in config:
+# staging_mode = true
 ```
+</details>
 
-**Reverse proxy configuration errors:**
+<details>
+<summary><b>Reverse Proxy Errors</b></summary>
+
 ```bash
 # Test nginx config
 sudo nginx -t
@@ -540,17 +677,51 @@ sudo nginx -t
 sudo apache2ctl configtest
 
 # Reload proxy
-sudo systemctl reload nginx
-# or
-sudo systemctl reload apache2
+sudo systemctl reload nginx  # or apache2
 ```
+</details>
 
-## Development
+---
+
+## Security
+
+| Area | Recommendation |
+|------|----------------|
+| **API Keys** | Use strong keys: `openssl rand -base64 32` |
+| **SSL Certificates** | Restrict permissions: `chmod 600 /etc/archon/ssl/*.key` |
+| **Docker Socket** | Run node as dedicated user or use Docker socket proxy |
+| **Firewall** | Restrict API port: `ufw allow from YOUR_IP to any port 8080` |
+| **HTTPS** | Use HTTPS for node API or run over VPN |
+
+---
+
+## Contributing
+
+Contributions are welcome! Areas for improvement:
+
+- [ ] Additional DNS providers (Namecheap, GoDaddy, etc.)
+- [ ] Container metrics dashboard
+- [ ] Log streaming in TUI
+- [ ] Site templates / presets
+- [ ] Backup and restore functionality
+- [ ] Multi-container sites (docker-compose support)
+- [ ] Health check automation
+- [ ] Notification system (email, Slack, etc.)
+
+### Building from Source
+
+```bash
+# Build TUI client
+cd archon && go build -o archon
+
+# Build node server  
+cd node && go build -o archon-node
+```
 
 ### Project Structure
 
 ```
-archon/
+Archon/
 ├── archon/                 # TUI client
 │   ├── internal/
 │   │   ├── app/           # Bubbletea application
@@ -560,9 +731,6 @@ archon/
 │   │   ├── api/           # Node API client
 │   │   ├── dns/           # DNS provider integrations
 │   │   └── ui/            # UI components and screens
-│   │       ├── components/  # Reusable UI components
-│   │       └── screens/     # Screen renderers
-│   ├── go.mod
 │   └── main.go
 ├── node/                   # Node server
 │   ├── internal/
@@ -570,90 +738,38 @@ archon/
 │   │   ├── docker/        # Docker integration
 │   │   ├── proxy/         # Reverse proxy configs
 │   │   └── ssl/           # SSL management
-│   ├── go.mod
-│   ├── main.go
-│   └── README.md
-├── imgs/                   # Screenshots
-└── README.md              # This file
+│   └── main.go
+└── imgs/                   # Screenshots and diagrams
 ```
-
-### Building from Source
-
-```bash
-# Build TUI client
-cd archon
-go build -o archon
-
-# Build node server
-cd ../node
-go build -o archon-node
-
-# Run tests (if available)
-go test ./...
-```
-
-### Contributing
-
-Contributions are welcome! Areas for improvement:
-
-- [ ] Additional DNS provider support (Namecheap, GoDaddy, etc.)
-- [ ] Container metrics dashboard
-- [ ] Log streaming in TUI
-- [ ] Site templates / presets
-- [ ] Backup and restore functionality
-- [ ] Multi-container sites (docker-compose support)
-- [ ] Health check automation
-- [ ] Notification system (email, Slack, etc.)
-
-## Security Considerations
-
-1. **API Keys**: Use strong, randomly-generated API keys
-   ```bash
-   # Generate a secure API key
-   openssl rand -base64 32
-   ```
-
-2. **SSL Certificates**: Store private keys with restricted permissions
-   ```bash
-   sudo chmod 600 /etc/archon/ssl/*.key
-   ```
-
-3. **Docker Socket**: Access to Docker socket grants root-level permissions
-   - Run node server as dedicated user where possible
-   - Use Docker socket proxy for additional security
-
-4. **Firewall**: Restrict access to node API port
-   ```bash
-   # Allow only from specific IP
-   sudo ufw allow from YOUR_IP to any port 8080
-   ```
-
-5. **HTTPS**: Use HTTPS for node API in production
-   - Configure reverse proxy in front of node server
-   - Or use API over VPN/private network
-
-## License
-
-MIT License - See LICENSE file for details
-
-## Credits
-
-Built with:
-- [Bubbletea](https://github.com/charmbracelet/bubbletea) - TUI framework
-- [Lipgloss](https://github.com/charmbracelet/lipgloss) - Terminal styling
-- [Bubbles](https://github.com/charmbracelet/bubbles) - TUI components
-- [Bubblezone](https://github.com/lrstanley/bubblezone) - Mouse zone support
-- [Docker](https://www.docker.com/) - Container runtime
-- [Traefik](https://traefik.io/) / [Nginx](https://nginx.org/) / [Apache](https://httpd.apache.org/) - Reverse proxies
-- [Let's Encrypt](https://letsencrypt.org/) - Free SSL certificates
-
-## Support
-
-For issues, questions, or contributions:
-- Open an issue on GitHub
-- Check existing issues for solutions
-- Review troubleshooting section above
 
 ---
 
-**Happy hosting! 🚀**
+## License
+
+MIT License - See [LICENSE](LICENSE) file for details.
+
+---
+
+## Acknowledgments
+
+Built with these excellent open source projects:
+
+| Library | Purpose |
+|---------|---------|
+| [Bubbletea](https://github.com/charmbracelet/bubbletea) | TUI framework |
+| [Lipgloss](https://github.com/charmbracelet/lipgloss) | Terminal styling |
+| [Bubbles](https://github.com/charmbracelet/bubbles) | TUI components |
+| [Bubblezone](https://github.com/lrstanley/bubblezone) | Mouse zone support |
+| [Docker](https://www.docker.com/) | Container runtime |
+| [Traefik](https://traefik.io/) / [Nginx](https://nginx.org/) / [Apache](https://httpd.apache.org/) | Reverse proxies |
+| [Let's Encrypt](https://letsencrypt.org/) | Free SSL certificates |
+
+---
+
+<div align="center">
+
+**[🌐 Project Page](https://jack-morrison.dev/projects/archon)** · **[📖 Node Documentation](node/README.md)** · **[⬆ Back to Top](#archon)**
+
+Made with ❤️ for the self-hosting community
+
+</div>
