@@ -173,13 +173,14 @@ func RenderDomainCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 
 	// Define labels based on provider type
 	var labels []string
-	if providerType == "cloudflare" {
+	switch providerType {
+	case "cloudflare":
 		labels = []string{
 			"Domain Name:",
 			"DNS Provider:",
 			"Cloudflare Zone ID:",
 		}
-	} else if providerType == "route53" {
+	case "route53":
 		labels = []string{
 			"Domain Name:",
 			"DNS Provider:",
@@ -187,7 +188,7 @@ func RenderDomainCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 			"AWS Access Key:",
 			"AWS Secret Key:",
 		}
-	} else {
+	default:
 		// Manual provider
 		labels = []string{
 			"Domain Name:",
@@ -197,13 +198,14 @@ func RenderDomainCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 
 	// Define help texts based on provider type
 	var helpTexts []string
-	if providerType == "cloudflare" {
+	switch providerType {
+	case "cloudflare":
 		helpTexts = []string{
 			"e.g., example.com",
 			"Select DNS provider",
 			"Found in Cloudflare domain overview (32 characters)",
 		}
-	} else if providerType == "route53" {
+	case "route53":
 		helpTexts = []string{
 			"e.g., example.com",
 			"Select DNS provider",
@@ -211,7 +213,7 @@ func RenderDomainCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 			"AWS access key",
 			"AWS secret key",
 		}
-	} else {
+	default:
 		helpTexts = []string{
 			"e.g., example.com",
 			"Select DNS provider",
@@ -333,9 +335,9 @@ func RenderDomainEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		s.FormFields = []string{
 			domain.Name,
 			providerType,
-			domain.DnsProvider.ZoneID,           // Cloudflare Zone ID or Route53 Hosted Zone ID
-			domain.DnsProvider.AccessKey,        // Route53 Access Key only
-			domain.DnsProvider.SecretKey,        // Route53 Secret Key only
+			domain.DnsProvider.ZoneID,    // Cloudflare Zone ID or Route53 Hosted Zone ID
+			domain.DnsProvider.AccessKey, // Route53 Access Key only
+			domain.DnsProvider.SecretKey, // Route53 Secret Key only
 		}
 		// Handle Route53 fields
 		if providerType == "route53" {
@@ -350,13 +352,14 @@ func RenderDomainEditWithZones(s *state.AppState, zm *zone.Manager) string {
 
 	// Define labels based on provider type
 	var labels []string
-	if providerType == "cloudflare" {
+	switch providerType {
+	case "cloudflare":
 		labels = []string{
 			"Domain Name:",
 			"DNS Provider:",
 			"Cloudflare Zone ID:",
 		}
-	} else if providerType == "route53" {
+	case "route53":
 		labels = []string{
 			"Domain Name:",
 			"DNS Provider:",
@@ -364,7 +367,7 @@ func RenderDomainEditWithZones(s *state.AppState, zm *zone.Manager) string {
 			"AWS Access Key:",
 			"AWS Secret Key:",
 		}
-	} else {
+	default:
 		// Manual provider
 		labels = []string{
 			"Domain Name:",
@@ -374,13 +377,14 @@ func RenderDomainEditWithZones(s *state.AppState, zm *zone.Manager) string {
 
 	// Define help texts based on provider type
 	var helpTexts []string
-	if providerType == "cloudflare" {
+	switch providerType {
+	case "cloudflare":
 		helpTexts = []string{
 			"e.g., example.com",
 			"Select DNS provider",
 			"Found in Cloudflare domain overview (32 characters)",
 		}
-	} else if providerType == "route53" {
+	case "route53":
 		helpTexts = []string{
 			"e.g., example.com",
 			"Select DNS provider",
@@ -388,7 +392,7 @@ func RenderDomainEditWithZones(s *state.AppState, zm *zone.Manager) string {
 			"AWS access key",
 			"AWS secret key",
 		}
-	} else {
+	default:
 		helpTexts = []string{
 			"e.g., example.com",
 			"Select DNS provider",

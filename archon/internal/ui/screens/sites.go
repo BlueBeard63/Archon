@@ -152,7 +152,8 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 
 			// Show stop button for running sites, play button for stopped/failed sites
 			var controlBtn components.Button
-			if site.Status == models.SiteStatusRunning || site.Status == models.SiteStatusDeploying {
+			switch site.Status {
+			case models.SiteStatusRunning, models.SiteStatusDeploying:
 				controlBtn = components.Button{
 					ID:      "stop-site-" + site.ID.String(),
 					Label:   "⏹️",
@@ -160,7 +161,7 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 					Border:  false,
 					Icon:    true,
 				}
-			} else if site.Status == models.SiteStatusStopped || site.Status == models.SiteStatusFailed {
+			case models.SiteStatusStopped, models.SiteStatusFailed:
 				controlBtn = components.Button{
 					ID:      "restart-site-" + site.ID.String(),
 					Label:   "▶️",
@@ -337,25 +338,26 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	fields += "\n" + envSection
 
 	helpText := "\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel"
-	if s.CurrentFieldIndex == 1 {
+	switch s.CurrentFieldIndex {
+	case 1:
 		// On Node dropdown field
 		if s.DropdownOpen {
 			helpText = "\nUp/Down to select, Enter/Tab to confirm, Esc to cancel"
 		} else {
 			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
 		}
-	} else if s.CurrentFieldIndex == 3 {
+	case 3:
 		helpText = "\nLeave black to skip Docker Auth (if image is public)"
-	} else if s.CurrentFieldIndex == 4 {
+	case 4:
 		helpText = "\nLeave black to skip Docker Auth (if image is public)"
-	} else if s.CurrentFieldIndex == 5 {
+	case 5:
 		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
-	} else if s.CurrentFieldIndex == 6 {
+	case 6:
 		helpText = "\nEnter full path to config file (will be loaded when site is created)"
-	} else if s.CurrentFieldIndex == 100 {
+	case 100:
 		// Special index for ENV vars
 		helpText = "\nType key/value, Tab to switch between key/value, +/- buttons to add/remove pairs"
-	} else if s.CurrentFieldIndex == 200 {
+	case 200:
 		// Special index for domain mappings
 		helpText = "\nSelect subdomain/domain/port, Tab to switch fields, +/- buttons to add/remove mappings"
 	}
@@ -499,25 +501,26 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	fields += "\n" + envSection
 
 	helpText := "\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel"
-	if s.CurrentFieldIndex == 1 {
+	switch s.CurrentFieldIndex {
+	case 1:
 		// On Node dropdown field
 		if s.DropdownOpen {
 			helpText = "\nUp/Down to select, Enter/Tab to confirm, Esc to cancel"
 		} else {
 			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
 		}
-	} else if s.CurrentFieldIndex == 3 {
+	case 3:
 		helpText = "\nLeave black to skip Docker Auth (if image is public)"
-	} else if s.CurrentFieldIndex == 4 {
+	case 4:
 		helpText = "\nLeave black to skip Docker Auth (if image is public)"
-	} else if s.CurrentFieldIndex == 5 {
+	case 5:
 		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
-	} else if s.CurrentFieldIndex == 6 {
+	case 6:
 		helpText = "\nEnter full path to config file (will be loaded when site is created)"
-	} else if s.CurrentFieldIndex == 100 {
+	case 100:
 		// Special index for ENV vars
 		helpText = "\nType key/value, Tab to switch between key/value, +/- buttons to add/remove pairs"
-	} else if s.CurrentFieldIndex == 200 {
+	case 200:
 		// Special index for domain mappings
 		helpText = "\nSelect subdomain/domain/port, Tab to switch fields, +/- buttons to add/remove mappings"
 	}
@@ -693,7 +696,7 @@ func renderDomainMappingsSection(s *state.AppState, zm *zone.Manager) string {
 }
 
 // renderDropdownOptions renders a dropdown list of options
-func renderDropdownOptions[T any](s *state.AppState, items []T, selectedIndex int, getName func(T) string) string {
+func renderDropdownOptions[T any](_ *state.AppState, items []T, selectedIndex int, getName func(T) string) string {
 	if len(items) == 0 {
 		return "     (No options available)"
 	}
