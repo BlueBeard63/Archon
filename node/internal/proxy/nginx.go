@@ -144,8 +144,13 @@ server {
 	// Convert to template data
 	domainsMap := make(map[string]DomainMappingPair)
 	for _, mapping := range domainMappings {
+		// Use host port for proxy (HostPort if set, otherwise Port)
+		hostPort := mapping.Port
+		if mapping.HostPort > 0 {
+			hostPort = mapping.HostPort
+		}
 		domainsMap[mapping.Domain] = DomainMappingPair{
-			Port:     mapping.Port,
+			Port:     hostPort,
 			CertPath: "", // Not used in validation template
 			KeyPath:  "",
 		}
@@ -225,8 +230,13 @@ func (n *NginxManager) Configure(ctx context.Context, site *models.DeployRequest
 	// All domains use the same certificate (SAN certificate)
 	domainsMap := make(map[string]DomainMappingPair)
 	for _, mapping := range domainMappings {
+		// Use host port for proxy (HostPort if set, otherwise Port)
+		hostPort := mapping.Port
+		if mapping.HostPort > 0 {
+			hostPort = mapping.HostPort
+		}
 		domainsMap[mapping.Domain] = DomainMappingPair{
-			Port:     mapping.Port,
+			Port:     hostPort,
 			CertPath: primaryCertPath,
 			KeyPath:  primaryKeyPath,
 		}

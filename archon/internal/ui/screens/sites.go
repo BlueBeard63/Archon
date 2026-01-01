@@ -427,7 +427,7 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 					Subdomain:  mapping.Subdomain,
 					DomainName: domainName,
 					DomainID:   mapping.DomainID.String(),
-					Port:       fmt.Sprintf("%d", mapping.Port),
+					Port:       models.FormatPortMapping(mapping.Port, mapping.HostPort),
 				})
 			}
 		} else {
@@ -654,7 +654,7 @@ func renderDomainMappingsSection(s *state.AppState, zm *zone.Manager) string {
 			prefix = "> "
 		}
 
-		line := fmt.Sprintf("%s[%d] Subdomain: %-15s Domain: %-25s Port: %-6s",
+		line := fmt.Sprintf("%s[%d] Subdomain: %-15s Domain: %-25s Port (container:host): %-6s",
 			prefix, i+1, subdomainValue, domainDisplay, portValue)
 
 		// Add +/- buttons
@@ -673,7 +673,7 @@ func renderDomainMappingsSection(s *state.AppState, zm *zone.Manager) string {
 
 			section.WriteString(zm.Mark(subdomainZoneID, prefix+fmt.Sprintf("[%d] Subdomain: %-15s ", i+1, subdomainValue)))
 			section.WriteString(zm.Mark(domainZoneID, fmt.Sprintf("Domain: %-25s ", domainDisplay)))
-			section.WriteString(zm.Mark(portZoneID, fmt.Sprintf("Port: %-6s ", portValue)))
+			section.WriteString(zm.Mark(portZoneID, fmt.Sprintf("Port (container:host): %-6s ", portValue)))
 			section.WriteString(zm.Mark(addZoneID, addBtn))
 			if len(s.DomainMappingPairs) > 1 || i > 0 {
 				section.WriteString(zm.Mark(removeZoneID, removeBtn))
