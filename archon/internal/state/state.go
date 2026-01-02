@@ -159,6 +159,14 @@ func (s *AppState) NavigateTo(screen Screen) {
 	s.FormFields = []string{}
 	s.CurrentFieldIndex = 0
 	s.CursorPosition = 0
+	s.DropdownOpen = false
+	s.DropdownIndex = 0
+	s.EnvVarPairs = []EnvVarPair{}
+	s.EnvVarFocusedPair = 0
+	s.EnvVarFocusedField = 0
+	s.DomainMappingPairs = []DomainMappingPair{}
+	s.DomainMappingFocusedPair = 0
+	s.DomainMappingFocusedField = 0
 }
 
 // NavigateBack goes back to the previous screen in history
