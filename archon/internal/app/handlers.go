@@ -1819,15 +1819,38 @@ func (m Model) handleFormSubmit() (tea.Model, tea.Cmd) {
 
 // handleSiteCreateSubmit processes site creation form submission
 func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
-	// Validate required fields: Name(0), Node(1), Docker Image(2)
-	// SSL Email(3) and Config File(4) are optional
-	requiredFields := []int{0, 1, 2}
-	fieldNames := map[int]string{0: "Name", 1: "Node", 2: "Docker Image"}
-	for _, i := range requiredFields {
-		if m.state.FormFields[i] == "" {
-			m.state.AddNotification("Required field "+fieldNames[i]+" must be filled", "error")
+	isCompose := m.state.SiteTypeSelection == "compose"
+
+	// Validate required fields based on site type
+	// Name(0), Node(1) always required
+	// For container: Docker Image(2) required
+	// For compose: Compose File Path(2) required
+	if m.state.FormFields[0] == "" {
+		m.state.AddNotification("Required field Name must be filled", "error")
+		return m, nil
+	}
+	if m.state.FormFields[1] == "" {
+		m.state.AddNotification("Required field Node must be filled", "error")
+		return m, nil
+	}
+	if m.state.FormFields[2] == "" {
+		if isCompose {
+			m.state.AddNotification("Required field Compose File Path must be filled", "error")
+		} else {
+			m.state.AddNotification("Required field Docker Image must be filled", "error")
+		}
+		return m, nil
+	}
+
+	// For compose: load and validate compose file
+	var composeContent string
+	if isCompose {
+		content, err := loadComposeFile(m.state.FormFields[2])
+		if err != nil {
+			m.state.AddNotification(err.Error(), "error")
 			return m, nil
 		}
+		composeContent = content
 	}
 
 	// Find node by name (index 1)
@@ -1896,46 +1919,71 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Create new site using first domain/port for backwards compatibility
-	site := models.NewSite(m.state.FormFields[0], firstDomainID, nodeID, m.state.FormFields[2], firstPort)
+	// Create new site
+	var site *models.Site
+	if isCompose {
+		// For compose: create site with empty docker image (compose handles containers)
+		site = models.NewSite(m.state.FormFields[0], firstDomainID, nodeID, "", firstPort)
+		site.SiteType = models.SiteTypeCompose
+		site.ComposeContent = composeContent
+	} else {
+		// For container: use docker image from field 2
+		site = models.NewSite(m.state.FormFields[0], firstDomainID, nodeID, m.state.FormFields[2], firstPort)
+		site.SiteType = models.SiteTypeContainer
+	}
 
 	// Replace default domain mapping with all mappings from the form
 	site.DomainMappings = domainMappings
 
-	// Set SSL email (field 3) if provided
-	if m.state.FormFields[3] != "" {
-		site.SSLEmail = strings.TrimSpace(m.state.FormFields[3])
+	// Set SSL email (field 5) if provided
+	if m.state.FormFields[5] != "" {
+		site.SSLEmail = strings.TrimSpace(m.state.FormFields[5])
 	}
 
-	// Parse environment variables from EnvVarPairs
-	for _, pair := range m.state.EnvVarPairs {
-		key := strings.TrimSpace(pair.Key)
-		value := strings.TrimSpace(pair.Value)
-		if key != "" {
-			site.EnvironmentVars[key] = value
+	// For container deployments: parse environment variables and config files
+	if !isCompose {
+		// Set Docker credentials (fields 3, 4)
+		if m.state.FormFields[3] != "" {
+			site.DockerUsername = strings.TrimSpace(m.state.FormFields[3])
 		}
-	}
+		if m.state.FormFields[4] != "" {
+			site.DockerToken = strings.TrimSpace(m.state.FormFields[4])
+		}
 
-	// Load config file (field 4) if provided
-	if m.state.FormFields[4] != "" {
-		configPath := strings.TrimSpace(m.state.FormFields[4])
-		content, err := os.ReadFile(configPath)
-		if err != nil {
-			m.state.AddNotification("Failed to read config file: "+err.Error(), "warning")
-		} else {
-			// Extract filename from path
-			filename := filepath.Base(configPath)
-			site.ConfigFiles = append(site.ConfigFiles, models.ConfigFile{
-				Name:          filename,
-				Content:       string(content),
-				ContainerPath: "/config/" + filename, // Default container path
-			})
+		// Parse environment variables from EnvVarPairs
+		for _, pair := range m.state.EnvVarPairs {
+			key := strings.TrimSpace(pair.Key)
+			value := strings.TrimSpace(pair.Value)
+			if key != "" {
+				site.EnvironmentVars[key] = value
+			}
+		}
+
+		// Load config file (field 6) if provided
+		if m.state.FormFields[6] != "" {
+			configPath := strings.TrimSpace(m.state.FormFields[6])
+			content, err := os.ReadFile(configPath)
+			if err != nil {
+				m.state.AddNotification("Failed to read config file: "+err.Error(), "warning")
+			} else {
+				// Extract filename from path
+				filename := filepath.Base(configPath)
+				site.ConfigFiles = append(site.ConfigFiles, models.ConfigFile{
+					Name:          filename,
+					Content:       string(content),
+					ContainerPath: "/config/" + filename, // Default container path
+				})
+			}
 		}
 	}
 
 	m.state.Sites = append(m.state.Sites, *site)
 
-	m.state.AddNotification("Site created: "+site.Name, "success")
+	siteTypeLabel := "Container"
+	if isCompose {
+		siteTypeLabel = "Compose"
+	}
+	m.state.AddNotification(fmt.Sprintf("%s site created: %s", siteTypeLabel, site.Name), "success")
 
 	// Auto-save config if enabled
 	if m.state.AutoSave {
@@ -2713,4 +2761,21 @@ func (m Model) handleDeleteNode(nodeID uuid.UUID) (tea.Model, tea.Cmd) {
 
 	m.state.AddNotification("Node not found", "error")
 	return m, nil
+}
+
+// loadComposeFile reads and validates a Docker Compose file from the given path
+func loadComposeFile(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read compose file: %w", err)
+	}
+
+	contentStr := string(content)
+
+	// Basic validation: check for required 'services:' key
+	if !strings.Contains(contentStr, "services:") {
+		return "", fmt.Errorf("invalid compose file: missing 'services:' key")
+	}
+
+	return contentStr, nil
 }
