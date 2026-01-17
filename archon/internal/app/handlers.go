@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
 
+	"github.com/BlueBeard63/archon/internal/compose"
 	"github.com/BlueBeard63/archon/internal/config"
 	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/BlueBeard63/archon/internal/state"
@@ -1844,14 +1845,17 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 
 	// For compose: load and validate compose file
 	var composeContent string
+	var detectedPorts []compose.DetectedPort
 	if isCompose {
-		content, err := loadComposeFile(m.state.FormFields[2])
+		content, ports, err := loadComposeFile(m.state.FormFields[2])
 		if err != nil {
 			m.state.AddNotification(err.Error(), "error")
 			return m, nil
 		}
 		composeContent = content
+		detectedPorts = ports
 	}
+	_ = detectedPorts // Will be used in Task 5
 
 	// Find node by name (index 1)
 	var nodeID uuid.UUID
@@ -2783,18 +2787,25 @@ func (m Model) handleDeleteNode(nodeID uuid.UUID) (tea.Model, tea.Cmd) {
 }
 
 // loadComposeFile reads and validates a Docker Compose file from the given path
-func loadComposeFile(path string) (string, error) {
+func loadComposeFile(path string) (string, []compose.DetectedPort, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("failed to read compose file: %w", err)
+		return "", nil, fmt.Errorf("failed to read compose file: %w", err)
 	}
 
 	contentStr := string(content)
 
 	// Basic validation: check for required 'services:' key
 	if !strings.Contains(contentStr, "services:") {
-		return "", fmt.Errorf("invalid compose file: missing 'services:' key")
+		return "", nil, fmt.Errorf("invalid compose file: missing 'services:' key")
 	}
 
-	return contentStr, nil
+	// Parse ports from compose file
+	ports, err := compose.ParsePorts(contentStr)
+	if err != nil {
+		// Log warning but don't fail - ports are optional enhancement
+		ports = nil
+	}
+
+	return contentStr, ports, nil
 }
