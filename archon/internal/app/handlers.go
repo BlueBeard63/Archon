@@ -276,8 +276,52 @@ func (m Model) handleSitesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleSiteCreateKeys handles keys on the site creation form
 func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Check if we're on a dropdown field (Node=1 in new layout)
-	isDropdownField := m.state.CurrentFieldIndex == 1
+	// Check if we're on a dropdown field (SiteType=-1, Node=1)
+	isSiteTypeField := m.state.CurrentFieldIndex == -1
+	isNodeField := m.state.CurrentFieldIndex == 1
+	isDropdownField := isSiteTypeField || isNodeField
+
+	// Helper to get next visible field index (skips hidden fields based on site type)
+	getNextVisibleField := func(current int) int {
+		isCompose := m.state.SiteTypeSelection == "compose"
+		next := current + 1
+
+		// For compose mode: skip fields 3 (docker username), 4 (docker token), 6 (config file)
+		// For container mode: all fields are visible
+		for next < len(m.state.FormFields) {
+			if isCompose && (next == 3 || next == 4 || next == 6) {
+				next++
+				continue
+			}
+			break
+		}
+
+		if next >= len(m.state.FormFields) {
+			// Move to domain mapping section
+			return 200
+		}
+		return next
+	}
+
+	// Helper to get previous visible field index
+	getPrevVisibleField := func(current int) int {
+		isCompose := m.state.SiteTypeSelection == "compose"
+		prev := current - 1
+
+		// For compose mode: skip fields 6, 4, 3
+		for prev >= 0 {
+			if isCompose && (prev == 3 || prev == 4 || prev == 6) {
+				prev--
+				continue
+			}
+			break
+		}
+
+		if prev < 0 {
+			return -1 // Site type selector
+		}
+		return prev
+	}
 
 	// Handle dropdown-specific keys when dropdown is open
 	if m.state.DropdownOpen && isDropdownField {
@@ -291,7 +335,12 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyDown:
 			// Navigate down in dropdown
-			maxIndex := len(m.state.Nodes) - 1
+			var maxIndex int
+			if isSiteTypeField {
+				maxIndex = 1 // Container, Compose
+			} else {
+				maxIndex = len(m.state.Nodes) - 1
+			}
 			if m.state.DropdownIndex < maxIndex {
 				m.state.DropdownIndex++
 			}
@@ -299,14 +348,28 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyEnter, tea.KeyTab:
 			// Confirm selection and close dropdown
-			if len(m.state.Nodes) > 0 {
+			if isSiteTypeField {
+				// Site type selection
+				if m.state.DropdownIndex == 0 {
+					m.state.SiteTypeSelection = "container"
+				} else {
+					m.state.SiteTypeSelection = "compose"
+				}
+			} else if len(m.state.Nodes) > 0 {
 				m.state.FormFields[1] = m.state.Nodes[m.state.DropdownIndex].Name
 			}
 			m.state.DropdownOpen = false
 
 			// If Tab, move to next field
 			if msg.Type == tea.KeyTab {
-				m.state.CurrentFieldIndex++
+				m.state.CurrentFieldIndex = getNextVisibleField(m.state.CurrentFieldIndex)
+				if m.state.CurrentFieldIndex == 200 {
+					m.state.DomainMappingFocusedPair = 0
+					m.state.DomainMappingFocusedField = 0
+					if len(m.state.DomainMappingPairs) > 0 {
+						m.state.CursorPosition = len(m.state.DomainMappingPairs[0].Subdomain)
+					}
+				}
 			}
 			return m, nil
 
@@ -316,9 +379,14 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case tea.KeyBackspace, tea.KeyRunes, tea.KeySpace:
-			// Close dropdown and allow manual input
-			m.state.DropdownOpen = false
-			// Fall through to normal input handling
+			// Close dropdown and allow manual input (not for site type - it's a fixed dropdown)
+			if !isSiteTypeField {
+				m.state.DropdownOpen = false
+			}
+			// Fall through to normal input handling for node field
+			if isSiteTypeField {
+				return m, nil
+			}
 		}
 	}
 
@@ -351,22 +419,22 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeySpace:
-		// Add space to current field
-		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+		// Add space to current field (not site type)
+		if m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) {
 			m.state.FormFields[m.state.CurrentFieldIndex] += " "
 		}
 		return m, nil
 
 	case tea.KeyRunes:
-		// Add character to current field
-		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+		// Add character to current field (not site type)
+		if m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) {
 			m.state.FormFields[m.state.CurrentFieldIndex] += string(msg.Runes)
 		}
 		return m, nil
 
 	case tea.KeyBackspace:
-		// Remove last character from current field
-		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+		// Remove last character from current field (not site type)
+		if m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) {
 			value := m.state.FormFields[m.state.CurrentFieldIndex]
 			if len(value) > 0 {
 				m.state.FormFields[m.state.CurrentFieldIndex] = value[:len(value)-1]
@@ -379,14 +447,14 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.state.DropdownOpen {
 			m.state.DropdownOpen = false
 		}
-		// Move to next field or domain mapping section
-		m.state.CurrentFieldIndex++
-		if m.state.CurrentFieldIndex >= len(m.state.FormFields) {
-			// Move to domain mapping section
-			m.state.CurrentFieldIndex = 200
+		// Move to next visible field
+		m.state.CurrentFieldIndex = getNextVisibleField(m.state.CurrentFieldIndex)
+		if m.state.CurrentFieldIndex == 200 {
 			m.state.DomainMappingFocusedPair = 0
 			m.state.DomainMappingFocusedField = 0
-			m.state.CursorPosition = len(m.state.DomainMappingPairs[0].Subdomain)
+			if len(m.state.DomainMappingPairs) > 0 {
+				m.state.CursorPosition = len(m.state.DomainMappingPairs[0].Subdomain)
+			}
 		}
 		return m, nil
 
@@ -395,11 +463,8 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.state.DropdownOpen {
 			m.state.DropdownOpen = false
 		}
-		// Move to previous field
-		m.state.CurrentFieldIndex--
-		if m.state.CurrentFieldIndex < 0 {
-			m.state.CurrentFieldIndex = len(m.state.FormFields) - 1
-		}
+		// Move to previous visible field
+		m.state.CurrentFieldIndex = getPrevVisibleField(m.state.CurrentFieldIndex)
 		return m, nil
 
 	case tea.KeyEnter:
