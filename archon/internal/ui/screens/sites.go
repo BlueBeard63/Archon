@@ -84,11 +84,18 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 				statusDisplay = "inactive"
 			}
 
+			// Get site type display
+			typeDisplay := "Container"
+			if site.GetSiteType() == models.SiteTypeCompose {
+				typeDisplay = "Compose"
+			}
+
 			rows = append(rows, table.Row{
-				truncate(site.Name, 20),
-				truncate(domainDisplay, 35),
-				truncate(nodeName, 20),
-				truncate(portDisplay, 20),
+				truncate(site.Name, 18),
+				truncate(typeDisplay, 9),
+				truncate(domainDisplay, 30),
+				truncate(nodeName, 18),
+				truncate(portDisplay, 8),
 				truncate(statusDisplay, 10),
 			})
 		}
@@ -96,10 +103,11 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		// 2. Initialize/update table
 		if s.SitesTable == nil {
 			columns := []table.Column{
-				{Title: "Name", Width: 20},
-				{Title: "Domain", Width: 35},
-				{Title: "Node", Width: 20},
-				{Title: "Port", Width: 20},
+				{Title: "Name", Width: 18},
+				{Title: "Type", Width: 9},
+				{Title: "Domain", Width: 30},
+				{Title: "Node", Width: 18},
+				{Title: "Port", Width: 8},
 				{Title: "Status", Width: 10},
 			}
 			s.SitesTable = components.NewTableComponent(columns, rows)
