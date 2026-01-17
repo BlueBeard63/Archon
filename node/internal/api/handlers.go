@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -76,6 +77,23 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 	// Validate request
 	if req.Name == "" || len(req.DomainMappings) == 0 || req.Docker.Image == "" {
 		respondError(w, http.StatusBadRequest, "Missing required fields")
+		return
+	}
+
+	// Extract host ports and check for conflicts
+	hostPorts := make([]int, 0, len(req.DomainMappings))
+	for _, mapping := range req.DomainMappings {
+		hostPort := mapping.Port
+		if mapping.HostPort > 0 {
+			hostPort = mapping.HostPort
+		}
+		hostPorts = append(hostPorts, hostPort)
+	}
+
+	// Check for port conflicts
+	if err := h.dockerClient.CheckPortConflicts(ctx, hostPorts, req.ID); err != nil {
+		log.Printf("[ERROR] Port conflict detected: %v", err)
+		respondError(w, http.StatusConflict, fmt.Sprintf("Port conflict: %v", err))
 		return
 	}
 

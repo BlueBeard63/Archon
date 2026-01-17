@@ -33,8 +33,9 @@ type DeployRequest struct {
 
 // DomainMapping represents a domain-to-port mapping for multi-domain sites
 type DomainMapping struct {
-	Domain string `json:"domain"` // Full domain (e.g., "api.example.com")
-	Port   int    `json:"port"`   // Container port for this domain
+	Domain   string `json:"domain"`                // Full domain (e.g., "api.example.com")
+	Port     int    `json:"port"`                  // Container port for this domain
+	HostPort int    `json:"host_port,omitempty"`   // Host port (optional, defaults to Port if not specified)
 }
 
 type Docker struct {

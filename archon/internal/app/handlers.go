@@ -1797,11 +1797,10 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Parse port
-		var port int
-		_, err := fmt.Sscanf(pair.Port, "%d", &port)
-		if err != nil || port < 1 || port > 65535 {
-			m.state.AddNotification(fmt.Sprintf("Domain mapping %d: invalid port number", i+1), "error")
+		// Parse port mapping (supports "3000" or "3000:3001" notation)
+		containerPort, hostPort, err := models.ParsePortMapping(pair.Port)
+		if err != nil {
+			m.state.AddNotification(fmt.Sprintf("Domain mapping %d: %v", i+1, err), "error")
 			return m, nil
 		}
 
@@ -1815,13 +1814,14 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 		// Store first domain and port for backwards compatibility
 		if len(domainMappings) == 0 {
 			firstDomainID = domainID
-			firstPort = port
+			firstPort = containerPort
 		}
 
 		domainMappings = append(domainMappings, models.DomainMapping{
 			DomainID:  domainID,
 			Subdomain: strings.TrimSpace(pair.Subdomain),
-			Port:      port,
+			Port:      containerPort,
+			HostPort:  hostPort,
 		})
 	}
 
@@ -1944,11 +1944,10 @@ func (m Model) handleSiteEditSubmit() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Parse port
-		var port int
-		_, err := fmt.Sscanf(pair.Port, "%d", &port)
-		if err != nil || port < 1 || port > 65535 {
-			m.state.AddNotification(fmt.Sprintf("Domain mapping %d: invalid port number", i+1), "error")
+		// Parse port mapping (supports "3000" or "3000:3001" notation)
+		containerPort, hostPort, err := models.ParsePortMapping(pair.Port)
+		if err != nil {
+			m.state.AddNotification(fmt.Sprintf("Domain mapping %d: %v", i+1, err), "error")
 			return m, nil
 		}
 
@@ -1962,13 +1961,14 @@ func (m Model) handleSiteEditSubmit() (tea.Model, tea.Cmd) {
 		// Store first domain and port for backwards compatibility
 		if len(domainMappings) == 0 {
 			firstDomainID = domainID
-			firstPort = port
+			firstPort = containerPort
 		}
 
 		domainMappings = append(domainMappings, models.DomainMapping{
 			DomainID:  domainID,
 			Subdomain: strings.TrimSpace(pair.Subdomain),
-			Port:      port,
+			Port:      containerPort,
+			HostPort:  hostPort,
 		})
 	}
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -122,10 +123,17 @@ func (c *Client) DeploySite(ctx context.Context, req *models.DeployRequest, data
 	for _, mapping := range req.DomainMappings {
 		containerPort := nat.Port(fmt.Sprintf("%d/tcp", mapping.Port))
 		exposedPorts[containerPort] = struct{}{}
+
+		// Determine host port (use HostPort if specified, otherwise use Port)
+		hostPort := mapping.Port
+		if mapping.HostPort > 0 {
+			hostPort = mapping.HostPort
+		}
+
 		portBindings[containerPort] = []nat.PortBinding{
 			{
 				HostIP:   "0.0.0.0",
-				HostPort: fmt.Sprintf("%d", mapping.Port),
+				HostPort: fmt.Sprintf("%d", hostPort),
 			},
 		}
 	}
@@ -389,6 +397,52 @@ func (c *Client) GetDockerInfo(ctx context.Context) (*models.DockerInfo, error) 
 		ContainersRunning: info.ContainersRunning,
 		ImagesCount:       info.Images,
 	}, nil
+}
+
+// CheckPortConflicts validates that host ports are available
+// Returns an error if any of the requested host ports are already in use by other containers
+func (c *Client) CheckPortConflicts(ctx context.Context, hostPorts []int, excludeSiteID uuid.UUID) error {
+	// List all containers (including stopped ones)
+	containers, err := c.cli.ContainerList(ctx, container.ListOptions{
+		All: true,
+		Filters: filters.NewArgs(
+			filters.Arg("label", "managed-by=archon"),
+		),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list containers: %w", err)
+	}
+
+	usedPorts := make(map[int]string) // port -> container name
+
+	for _, cont := range containers {
+		// Skip the container being updated
+		if siteID, ok := cont.Labels["archon.site.id"]; ok && siteID == excludeSiteID.String() {
+			continue
+		}
+
+		// Extract ports from container
+		for _, portBinding := range cont.Ports {
+			if portBinding.PublicPort > 0 {
+				containerName := strings.TrimPrefix(cont.Names[0], "/")
+				usedPorts[int(portBinding.PublicPort)] = containerName
+			}
+		}
+	}
+
+	// Check for conflicts
+	var conflicts []string
+	for _, port := range hostPorts {
+		if containerName, exists := usedPorts[port]; exists {
+			conflicts = append(conflicts, fmt.Sprintf("port %d (used by %s)", port, containerName))
+		}
+	}
+
+	if len(conflicts) > 0 {
+		return fmt.Errorf("port conflicts detected: %s", strings.Join(conflicts, ", "))
+	}
+
+	return nil
 }
 
 // Close closes the Docker client
