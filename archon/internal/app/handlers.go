@@ -572,6 +572,7 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			site := m.state.GetSiteByID(m.state.SelectedSiteID)
 			if site != nil && site.GetSiteType() != models.SiteTypeCompose {
 				m.state.EnvVarPairs = []state.EnvVarPair{} // Clear to trigger reload
+				m.state.CurrentFieldIndex = 100            // Set focus to ENV vars section
 				m.state.NavigateTo(state.ScreenSiteEnvVars)
 				return m, nil
 			}

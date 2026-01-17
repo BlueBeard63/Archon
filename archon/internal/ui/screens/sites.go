@@ -718,11 +718,14 @@ func renderEnvVarsSection(s *state.AppState, zm *zone.Manager) string {
 			valueDisplay = valueDisplay[:cursor] + "_" + valueDisplay[cursor:]
 		}
 
-		// Build the row with focus styling
-		rowLabel := fmt.Sprintf("[%d] Key:", i+1)
-		styledPrefix := renderFieldLabel(rowLabel, isFocused)
+		// Build the row with separate focus styling for Key and Value
+		keyFocused := isFocused && s.EnvVarFocusedField == 0
+		valueFocused := isFocused && s.EnvVarFocusedField == 1
 
-		line := fmt.Sprintf("%s %-20s Value: %-30s", styledPrefix, keyValue, valueDisplay)
+		styledKeyLabel := renderFieldLabel(fmt.Sprintf("[%d] Key:", i+1), keyFocused)
+		styledValueLabel := renderFieldLabel("Value:", valueFocused)
+
+		line := fmt.Sprintf("%s %-20s %s %-30s", styledKeyLabel, keyValue, styledValueLabel, valueDisplay)
 
 		// Add +/- buttons
 		addBtn := "+ "
@@ -737,8 +740,10 @@ func renderEnvVarsSection(s *state.AppState, zm *zone.Manager) string {
 			keyZoneID := fmt.Sprintf("env-key:%d", i)
 			valueZoneID := fmt.Sprintf("env-value:%d", i)
 
-			section.WriteString(zm.Mark(keyZoneID, styledPrefix+" "))
-			section.WriteString(zm.Mark(valueZoneID, fmt.Sprintf("%-20s Value: %-30s ", keyValue, valueDisplay)))
+			section.WriteString(zm.Mark(keyZoneID, styledKeyLabel+" "))
+			section.WriteString(fmt.Sprintf("%-20s ", keyValue))
+			section.WriteString(zm.Mark(valueZoneID, styledValueLabel+" "))
+			section.WriteString(fmt.Sprintf("%-30s ", valueDisplay))
 			section.WriteString(zm.Mark(addZoneID, addBtn))
 			if len(s.EnvVarPairs) > 1 || i > 0 {
 				section.WriteString(zm.Mark(removeZoneID, removeBtn))
