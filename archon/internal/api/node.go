@@ -53,7 +53,9 @@ func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, 
 	req := struct {
 		ID              uuid.UUID           `json:"id"`
 		Name            string              `json:"name"`
+		SiteType        models.SiteType     `json:"site_type"`
 		Docker          Docker              `json:"docker"`
+		ComposeContent  string              `json:"compose_content,omitempty"`
 		EnvironmentVars map[string]string   `json:"environment_vars"`
 		DomainMappings  []DomainMapping     `json:"domain_mappings"`
 		SSLEnabled      bool                `json:"ssl_enabled"`
@@ -61,8 +63,9 @@ func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, 
 		ConfigFiles     []models.ConfigFile `json:"config_files"`
 		TraefikLabels   map[string]string   `json:"traefik_labels,omitempty"`
 	}{
-		ID:   site.ID,
-		Name: site.Name,
+		ID:       site.ID,
+		Name:     site.Name,
+		SiteType: site.GetSiteType(),
 		Docker: Docker{
 			Image: site.DockerImage,
 			Credentials: DockerCredentials{
@@ -70,6 +73,7 @@ func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, 
 				Password: site.DockerToken,
 			},
 		},
+		ComposeContent:  site.ComposeContent,
 		EnvironmentVars: site.EnvironmentVars,
 		DomainMappings:  domainMappings,
 		SSLEnabled:      site.SSLEnabled,
@@ -123,7 +127,9 @@ func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *mode
 	req := struct {
 		ID              uuid.UUID           `json:"id"`
 		Name            string              `json:"name"`
+		SiteType        models.SiteType     `json:"site_type"`
 		Docker          Docker              `json:"docker"`
+		ComposeContent  string              `json:"compose_content,omitempty"`
 		EnvironmentVars map[string]string   `json:"environment_vars"`
 		DomainMappings  []DomainMapping     `json:"domain_mappings"`
 		SSLEnabled      bool                `json:"ssl_enabled"`
@@ -131,8 +137,9 @@ func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *mode
 		ConfigFiles     []models.ConfigFile `json:"config_files"`
 		TraefikLabels   map[string]string   `json:"traefik_labels,omitempty"`
 	}{
-		ID:   site.ID,
-		Name: site.Name,
+		ID:       site.ID,
+		Name:     site.Name,
+		SiteType: site.GetSiteType(),
 		Docker: Docker{
 			Image: site.DockerImage,
 			Credentials: DockerCredentials{
@@ -140,6 +147,7 @@ func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *mode
 				Password: site.DockerToken,
 			},
 		},
+		ComposeContent:  site.ComposeContent,
 		EnvironmentVars: site.EnvironmentVars,
 		DomainMappings:  domainMappings,
 		SSLEnabled:      site.SSLEnabled,
@@ -213,8 +221,14 @@ func convertToWebSocketURL(endpoint, path string) (string, error) {
 }
 
 // DeleteSite removes a deployed site from a node
-func (c *HTTPNodeClient) DeleteSite(endpoint, apiKey string, siteID uuid.UUID) error {
-	url := fmt.Sprintf("%s/api/v1/sites/%s", endpoint, siteID.String())
+func (c *HTTPNodeClient) DeleteSite(endpoint, apiKey string, siteID uuid.UUID, domain, siteName string, siteType models.SiteType) error {
+	url := fmt.Sprintf("%s/api/v1/sites/%s?domain=%s", endpoint, siteID.String(), domain)
+
+	// Add query params for compose sites
+	if siteType == models.SiteTypeCompose && siteName != "" {
+		url = fmt.Sprintf("%s&type=compose&name=%s", url, siteName)
+	}
+
 	resp, err := c.doRequest("DELETE", url, apiKey, nil)
 	if err != nil {
 		return err
@@ -229,8 +243,14 @@ func (c *HTTPNodeClient) DeleteSite(endpoint, apiKey string, siteID uuid.UUID) e
 }
 
 // GetSiteStatus retrieves the current status of a deployed site
-func (c *HTTPNodeClient) GetSiteStatus(endpoint, apiKey string, siteID uuid.UUID) (*models.SiteStatus, error) {
+func (c *HTTPNodeClient) GetSiteStatus(endpoint, apiKey string, siteID uuid.UUID, siteName string, siteType models.SiteType) (*models.SiteStatus, error) {
 	url := fmt.Sprintf("%s/api/v1/sites/%s/status", endpoint, siteID.String())
+
+	// Add query params for compose sites
+	if siteType == models.SiteTypeCompose && siteName != "" {
+		url = fmt.Sprintf("%s?type=compose&name=%s", url, siteName)
+	}
+
 	resp, err := c.doRequest("GET", url, apiKey, nil)
 	if err != nil {
 		return nil, err
@@ -250,8 +270,13 @@ func (c *HTTPNodeClient) GetSiteStatus(endpoint, apiKey string, siteID uuid.UUID
 }
 
 // StopSite stops a running site container
-func (c *HTTPNodeClient) StopSite(endpoint, apiKey string, siteID uuid.UUID) error {
+func (c *HTTPNodeClient) StopSite(endpoint, apiKey string, siteID uuid.UUID, siteName string, siteType models.SiteType) error {
 	url := fmt.Sprintf("%s/api/v1/sites/%s/stop", endpoint, siteID.String())
+
+	// Add query params for compose sites
+	if siteType == models.SiteTypeCompose && siteName != "" {
+		url = fmt.Sprintf("%s?type=compose&name=%s", url, siteName)
+	}
 	resp, err := c.doRequest("POST", url, apiKey, nil)
 	if err != nil {
 		return err
@@ -417,8 +442,9 @@ func (c *HTTPNodeClient) doRequest(method, url, apiKey string, body interface{})
 
 // DomainMapping represents a domain-to-port mapping for node API requests
 type DomainMapping struct {
-	Domain string `json:"domain"` // Full domain (e.g., "api.example.com")
-	Port   int    `json:"port"`   // Container port for this domain
+	Domain   string `json:"domain"`                // Full domain (e.g., "api.example.com")
+	Port     int    `json:"port"`                  // Container port for this domain
+	HostPort int    `json:"host_port,omitempty"`   // Host port (optional, defaults to Port if not specified)
 }
 
 // convertToNodeDomainMappings converts site domain mappings to node API format
@@ -450,8 +476,9 @@ func convertToNodeDomainMappings(site *models.Site, domainName string) []DomainM
 			fullDomain = mapping.Subdomain + "." + baseDomain
 		}
 		mappings = append(mappings, DomainMapping{
-			Domain: fullDomain,
-			Port:   mapping.Port,
+			Domain:   fullDomain,
+			Port:     mapping.Port,
+			HostPort: mapping.HostPort,
 		})
 	}
 	return mappings

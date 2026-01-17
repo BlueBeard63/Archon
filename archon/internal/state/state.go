@@ -27,6 +27,7 @@ const (
 	ScreenSitesList         Screen = "sites_list"
 	ScreenSiteCreate        Screen = "site_create"
 	ScreenSiteEdit          Screen = "site_edit"
+	ScreenSiteEnvVars       Screen = "site_env_vars"
 	ScreenDomainsList       Screen = "domains_list"
 	ScreenDomainCreate      Screen = "domain_create"
 	ScreenDomainEdit        Screen = "domain_edit"
@@ -81,6 +82,15 @@ type AppState struct {
 	DomainMappingPairs       []DomainMappingPair `json:"domain_mapping_pairs"`       // Domain mapping entries
 	DomainMappingFocusedPair int                 `json:"domain_mapping_focused_pair"` // Which mapping is currently focused
 	DomainMappingFocusedField int               `json:"domain_mapping_focused_field"` // 0=subdomain, 1=domain, 2=port
+
+	// Edit form initialization tracking
+	EditFormInitialized bool `json:"edit_form_initialized"` // Track if edit form data has been loaded
+
+	// Compose deployment state (for create/edit screens)
+	SiteTypeSelection  string `json:"site_type_selection"`  // "container" or "compose"
+	ComposeInputMethod string `json:"compose_input_method"` // "file" or "paste"
+	ComposeFilePath    string `json:"compose_file_path"`    // Path to compose file (when input method is "file")
+	ComposeContent     string `json:"compose_content"`      // Pasted compose YAML content (when input method is "paste")
 
 	// Async operations tracking
 	PendingOperations []AsyncOperation `json:"pending_operations"`
@@ -152,13 +162,32 @@ func (s *AppState) NavigateTo(screen Screen) {
 	// Push current screen to history
 	s.PreviousScreens = append(s.PreviousScreens, s.CurrentScreen)
 
+	// Reset edit form flag when leaving edit screen for non-ENV screen
+	if s.CurrentScreen == ScreenSiteEdit && screen != ScreenSiteEnvVars {
+		s.EditFormInitialized = false
+	}
+
 	// Switch to new screen
 	s.CurrentScreen = screen
 
-	// Reset form state when navigating
-	s.FormFields = []string{}
-	s.CurrentFieldIndex = 0
-	s.CursorPosition = 0
+	// Reset form state when navigating (except when going to/from ENV screen)
+	if screen != ScreenSiteEnvVars {
+		s.FormFields = []string{}
+		s.CurrentFieldIndex = 0
+		s.CursorPosition = 0
+		s.DropdownOpen = false
+		s.DropdownIndex = 0
+		s.EnvVarPairs = []EnvVarPair{}
+		s.EnvVarFocusedPair = 0
+		s.EnvVarFocusedField = 0
+		s.DomainMappingPairs = []DomainMappingPair{}
+		s.DomainMappingFocusedPair = 0
+		s.DomainMappingFocusedField = 0
+		s.SiteTypeSelection = "container" // Default to container
+		s.ComposeInputMethod = "file"     // Default to file input
+		s.ComposeFilePath = ""
+		s.ComposeContent = ""
+	}
 }
 
 // NavigateBack goes back to the previous screen in history
@@ -166,8 +195,15 @@ func (s *AppState) NavigateBack() {
 	if len(s.PreviousScreens) > 0 {
 		// Pop from history stack
 		lastIndex := len(s.PreviousScreens) - 1
-		s.CurrentScreen = s.PreviousScreens[lastIndex]
+		targetScreen := s.PreviousScreens[lastIndex]
 		s.PreviousScreens = s.PreviousScreens[:lastIndex]
+
+		// Reset edit form flag when leaving edit screen for non-ENV screen
+		if s.CurrentScreen == ScreenSiteEdit && targetScreen != ScreenSiteEnvVars {
+			s.EditFormInitialized = false
+		}
+
+		s.CurrentScreen = targetScreen
 	}
 }
 

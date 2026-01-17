@@ -225,23 +225,24 @@ func RenderDomainCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	for i, label := range labels {
 		value := s.FormFields[i]
 		displayValue := value
+		isFocused := i == s.CurrentFieldIndex
 
 		// Mask sensitive fields (Route53 keys only) when not focused
 		isSensitive := (providerType == "route53" && (i == 3 || i == 4))
-		if isSensitive && value != "" && i != s.CurrentFieldIndex {
+		if isSensitive && value != "" && !isFocused {
 			displayValue = "••••••••••••••••"
 		}
 
 		// Show cursor if focused
-		if i == s.CurrentFieldIndex {
+		if isFocused {
 			displayValue = value + "_"
-			label = "> " + label
-		} else {
-			label = "  " + label
 		}
 
+		// Render label with focus styling
+		styledLabel := renderFieldLabel(label, isFocused)
+
 		// Wrap the field line in a clickable zone
-		fieldLine := label + " " + displayValue + "\n"
+		fieldLine := styledLabel + " " + displayValue + "\n"
 		helpLine := ""
 		if i < len(helpTexts) {
 			helpLine = "  " + lipgloss.NewStyle().Faint(true).Render(helpTexts[i]) + "\n"
@@ -254,7 +255,7 @@ func RenderDomainCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 
 		// Show dropdown options for Provider field (index 1) when focused
-		if i == s.CurrentFieldIndex && i == 1 && s.DropdownOpen {
+		if isFocused && i == 1 && s.DropdownOpen {
 			providers := []string{"manual", "cloudflare", "route53"}
 			dropdownOptions := renderProviderDropdown(providers, s.DropdownIndex)
 			fields += dropdownOptions + "\n"
@@ -404,23 +405,24 @@ func RenderDomainEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	for i, label := range labels {
 		value := s.FormFields[i]
 		displayValue := value
+		isFocused := i == s.CurrentFieldIndex
 
 		// Mask sensitive fields (Route53 keys only) when not focused
 		isSensitive := (providerType == "route53" && (i == 3 || i == 4))
-		if isSensitive && value != "" && i != s.CurrentFieldIndex {
+		if isSensitive && value != "" && !isFocused {
 			displayValue = "••••••••••••••••"
 		}
 
 		// Show cursor if focused
-		if i == s.CurrentFieldIndex {
+		if isFocused {
 			displayValue = value + "_"
-			label = "> " + label
-		} else {
-			label = "  " + label
 		}
 
+		// Render label with focus styling
+		styledLabel := renderFieldLabel(label, isFocused)
+
 		// Wrap the field line in a clickable zone
-		fieldLine := label + " " + displayValue + "\n"
+		fieldLine := styledLabel + " " + displayValue + "\n"
 		helpLine := ""
 		if i < len(helpTexts) {
 			helpLine = "  " + lipgloss.NewStyle().Faint(true).Render(helpTexts[i]) + "\n"
@@ -433,7 +435,7 @@ func RenderDomainEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 
 		// Show dropdown options for Provider field (index 1) when focused
-		if i == s.CurrentFieldIndex && i == 1 && s.DropdownOpen {
+		if isFocused && i == 1 && s.DropdownOpen {
 			providers := []string{"manual", "cloudflare", "route53"}
 			dropdownOptions := renderProviderDropdown(providers, s.DropdownIndex)
 			fields += dropdownOptions + "\n"

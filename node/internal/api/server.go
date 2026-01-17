@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/BlueBeard63/archon-node/internal/compose"
 	"github.com/BlueBeard63/archon-node/internal/config"
 	"github.com/BlueBeard63/archon-node/internal/docker"
 	"github.com/BlueBeard63/archon-node/internal/proxy"
@@ -16,12 +17,13 @@ import (
 )
 
 type Server struct {
-	config       *config.Config
-	router       *chi.Mux
-	server       *http.Server
-	dockerClient *docker.Client
-	proxyManager proxy.ProxyManager
-	sslManager   *ssl.Manager
+	config          *config.Config
+	router          *chi.Mux
+	server          *http.Server
+	dockerClient    *docker.Client
+	composeExecutor *compose.Executor
+	proxyManager    proxy.ProxyManager
+	sslManager      *ssl.Manager
 }
 
 func NewServer(cfg *config.Config) (*Server, error) {
@@ -40,6 +42,9 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	// Create SSL manager (pass proxy type for certbot integration)
 	sslManager := ssl.NewManager(&cfg.SSL, cfg.Proxy.Type)
 
+	// Create compose executor
+	composeExecutor := compose.NewExecutor(cfg.Server.DataDir, cfg.Docker.Network)
+
 	// Create router
 	r := chi.NewRouter()
 
@@ -51,7 +56,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	r.Use(LoggingMiddleware)
 
 	// Create handlers
-	handlers := NewHandlers(dockerClient, proxyManager, sslManager, cfg.Server.DataDir)
+	handlers := NewHandlers(dockerClient, composeExecutor, proxyManager, sslManager, cfg.Server.DataDir)
 
 	// Public routes (no auth required)
 	r.Get("/health", handlers.HandleHealth)
@@ -81,12 +86,13 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	}
 
 	return &Server{
-		config:       cfg,
-		router:       r,
-		server:       httpServer,
-		dockerClient: dockerClient,
-		proxyManager: proxyManager,
-		sslManager:   sslManager,
+		config:          cfg,
+		router:          r,
+		server:          httpServer,
+		dockerClient:    dockerClient,
+		composeExecutor: composeExecutor,
+		proxyManager:    proxyManager,
+		sslManager:      sslManager,
 	}, nil
 }
 

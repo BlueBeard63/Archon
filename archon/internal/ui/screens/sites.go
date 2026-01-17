@@ -13,6 +13,24 @@ import (
 	"github.com/BlueBeard63/archon/internal/ui/components"
 )
 
+// Colors for focused field styling (local to avoid circular import with ui package)
+var (
+	colorPrimary = lipgloss.Color("#7C3AED") // Purple
+
+	// formLabelFocusedStyle is the style for focused form field labels
+	formLabelFocusedStyle = lipgloss.NewStyle().
+				Foreground(colorPrimary).
+				Bold(true)
+)
+
+// renderFieldLabel renders a field label with focus indicator and styling
+func renderFieldLabel(label string, focused bool) string {
+	if focused {
+		return formLabelFocusedStyle.Render("> " + label)
+	}
+	return "  " + label
+}
+
 // RenderSitesList renders the sites list screen with buttons
 func RenderSitesList(s *state.AppState) string {
 	return RenderSitesListWithZones(s, nil)
@@ -84,11 +102,18 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 				statusDisplay = "inactive"
 			}
 
+			// Get site type display
+			typeDisplay := "Container"
+			if site.GetSiteType() == models.SiteTypeCompose {
+				typeDisplay = "Compose"
+			}
+
 			rows = append(rows, table.Row{
-				truncate(site.Name, 20),
-				truncate(domainDisplay, 35),
-				truncate(nodeName, 20),
-				truncate(portDisplay, 20),
+				truncate(site.Name, 18),
+				truncate(typeDisplay, 12),
+				truncate(domainDisplay, 30),
+				truncate(nodeName, 18),
+				truncate(portDisplay, 8),
 				truncate(statusDisplay, 10),
 			})
 		}
@@ -96,10 +121,11 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		// 2. Initialize/update table
 		if s.SitesTable == nil {
 			columns := []table.Column{
-				{Title: "Name", Width: 20},
-				{Title: "Domain", Width: 35},
-				{Title: "Node", Width: 20},
-				{Title: "Port", Width: 20},
+				{Title: "Name", Width: 18},
+				{Title: "Type", Width: 12},
+				{Title: "Domain", Width: 30},
+				{Title: "Node", Width: 18},
+				{Title: "Port", Width: 8},
 				{Title: "Status", Width: 10},
 			}
 			s.SitesTable = components.NewTableComponent(columns, rows)
@@ -273,10 +299,24 @@ func RenderSiteCreate(s *state.AppState) string {
 
 // RenderSiteCreateWithZones renders the site creation form with clickable fields
 func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
-	// Initialize form if needed (7 fields: name, node, docker image, docker username, docker token, ssl email, config file)
+	// Always ensure form is properly initialized (7 fields: name, node, docker image/compose path, docker username, docker token, ssl email, config file)
 	if len(s.FormFields) != 7 {
 		s.FormFields = []string{"", "", "", "", "", "", ""}
-		s.CurrentFieldIndex = 0
+	}
+
+	// Only reset field index if it's out of bounds (-1 is valid for site type selector)
+	if s.CurrentFieldIndex < -1 || s.CurrentFieldIndex > 200 {
+		s.CurrentFieldIndex = -1 // Start at site type selector
+	}
+
+	// Initialize site type selection if empty
+	if s.SiteTypeSelection == "" {
+		s.SiteTypeSelection = "container"
+	}
+
+	// Initialize compose input method if empty
+	if s.ComposeInputMethod == "" {
+		s.ComposeInputMethod = "file"
 	}
 
 	// Initialize ENV vars with one empty pair if needed
@@ -291,36 +331,86 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 
 	title := titleStyle.Render("Create New Site")
 
-	labels := []string{
-		"Name:",
-		"Node:",
-		"Docker Image:",
-		"Docker Username:",
-		"Docker Token:",
-		"SSL Email (for Let's Encrypt):",
-		"Config File Path (optional):",
+	isCompose := s.SiteTypeSelection == "compose"
+
+	// Build fields string
+	var fields string
+
+	// Site Type selector (special field index -1, rendered first)
+	siteTypeLabel := renderFieldLabel("Deployment Type:", s.CurrentFieldIndex == -1)
+	siteTypeValue := "Container"
+	if isCompose {
+		siteTypeValue = "Compose"
+	}
+	if s.CurrentFieldIndex == -1 {
+		siteTypeValue += "_"
+	}
+	siteTypeLine := siteTypeLabel + " " + siteTypeValue + "\n"
+	fields += zm.Mark("field:-1", siteTypeLine)
+
+	// Show site type dropdown when focused
+	if s.CurrentFieldIndex == -1 && s.DropdownOpen {
+		options := []string{"Container", "Compose"}
+		var dropdownStr string
+		for i, opt := range options {
+			prefix := "    "
+			if i == s.DropdownIndex {
+				prefix = "  > "
+			}
+			dropdownStr += prefix + opt + "\n"
+		}
+		fields += dropdownStr
+	}
+
+	// Define labels based on site type
+	var labels []string
+	if isCompose {
+		labels = []string{
+			"Name:",
+			"Node:",
+			"Compose File Path:",
+			"", // Hidden (docker username)
+			"", // Hidden (docker token)
+			"SSL Email (for Let's Encrypt):",
+			"", // Hidden (config file - not applicable for compose)
+		}
+	} else {
+		labels = []string{
+			"Name:",
+			"Node:",
+			"Docker Image:",
+			"Docker Username:",
+			"Docker Token:",
+			"SSL Email (for Let's Encrypt):",
+			"Config File Path (optional):",
+		}
 	}
 
 	// Render each field with zones
-	var fields string
 	for i, label := range labels {
-		value := s.FormFields[i]
-		displayValue := value
-
-		// Show cursor if focused
-		if i == s.CurrentFieldIndex {
-			displayValue = value + "_"
-			label = "> " + label // Show arrow for focused field
-		} else {
-			label = "  " + label
+		// Skip hidden fields (empty labels)
+		if label == "" {
+			continue
 		}
 
+		value := s.FormFields[i]
+		displayValue := value
+		isFocused := i == s.CurrentFieldIndex
+
+		// Show cursor if focused
+		if isFocused {
+			displayValue = value + "_"
+		}
+
+		// Render label with focus styling
+		styledLabel := renderFieldLabel(label, isFocused)
+
 		// Wrap the entire field line in a clickable zone
-		fieldLine := label + " " + displayValue + "\n"
+		fieldLine := styledLabel + " " + displayValue + "\n"
 		fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
 
 		// Show dropdown options for Node (index 1) when focused
-		if i == s.CurrentFieldIndex && i == 1 && s.DropdownOpen {
+		if isFocused && i == 1 && s.DropdownOpen {
 			// Node dropdown
 			dropdownOptions := renderDropdownOptions(s, s.Nodes, s.DropdownIndex, func(n models.Node) string {
 				return n.Name
@@ -333,12 +423,15 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	domainMappingsSection := renderDomainMappingsSection(s, zm)
 	fields += "\n" + domainMappingsSection
 
-	// Render ENV vars section
-	envSection := renderEnvVarsSection(s, zm)
-	fields += "\n" + envSection
-
 	helpText := "\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel"
 	switch s.CurrentFieldIndex {
+	case -1:
+		// Site type selector
+		if s.DropdownOpen {
+			helpText = "\nUp/Down to select, Enter/Tab to confirm"
+		} else {
+			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
+		}
 	case 1:
 		// On Node dropdown field
 		if s.DropdownOpen {
@@ -346,24 +439,37 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		} else {
 			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
 		}
+	case 2:
+		if isCompose {
+			helpText = "\nEnter path to docker-compose.yml file (port will be auto-detected)"
+		} else {
+			helpText = "\nDocker image to deploy (e.g., nginx:latest, myrepo/myimage:v1)"
+		}
 	case 3:
-		helpText = "\nLeave black to skip Docker Auth (if image is public)"
+		helpText = "\nLeave blank to skip Docker Auth (if image is public)"
 	case 4:
-		helpText = "\nLeave black to skip Docker Auth (if image is public)"
+		helpText = "\nLeave blank to skip Docker Auth (if image is public)"
 	case 5:
 		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
 	case 6:
 		helpText = "\nEnter full path to config file (will be loaded when site is created)"
-	case 100:
-		// Special index for ENV vars
-		helpText = "\nType key/value, Tab to switch between key/value, +/- buttons to add/remove pairs"
 	case 200:
 		// Special index for domain mappings
-		helpText = "\nSelect subdomain/domain/port, Tab to switch fields, +/- buttons to add/remove mappings"
+		if isCompose {
+			helpText = "\nPort auto-detected from compose file • You can override it manually"
+		} else {
+			helpText = "\nSelect subdomain/domain/port, Tab to switch fields, +/- buttons to add/remove mappings"
+		}
 	}
 
 	help := helpStyle.Render(helpText)
-	note := helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings/ENV vars, - to remove")
+
+	var note string
+	if isCompose {
+		note = helpStyle.Render("Note: Compose deployment • Port auto-detected from compose file (can be overridden)")
+	} else {
+		note = helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings, - to remove")
+	}
 
 	return title + "\n\n" + fields + "\n" + help + "\n" + note
 }
@@ -381,12 +487,20 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		return titleStyle.Render("Error: Site not found")
 	}
 
-	// Initialize form fields if needed (7 fields: name, node, docker image, docker username, docker token, ssl email, config file)
-	if len(s.FormFields) != 7 {
-		// Pre-populate with existing site data
+	// Initialize site type from the existing site
+	isCompose := site.GetSiteType() == models.SiteTypeCompose
+	s.SiteTypeSelection = string(site.GetSiteType())
+
+	// Only initialize form data on first entry to edit screen
+	// This prevents typed input from being overwritten on every render
+	if !s.EditFormInitialized {
 		s.FormFields = make([]string, 7)
 		s.FormFields[0] = site.Name
-		s.FormFields[2] = site.DockerImage
+		if isCompose {
+			s.FormFields[2] = "(Compose content loaded)" // Placeholder for compose sites
+		} else {
+			s.FormFields[2] = site.DockerImage
+		}
 		s.FormFields[3] = site.DockerUsername
 		s.FormFields[4] = site.DockerToken
 		s.FormFields[5] = site.SSLEmail
@@ -406,16 +520,11 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 			s.FormFields[6] = ""
 		}
 
-		s.CurrentFieldIndex = 0
-	}
-
-	// Initialize domain mapping pairs from existing site if needed
-	if len(s.DomainMappingPairs) == 0 {
+		// Initialize domain mapping pairs from current site data
+		s.DomainMappingPairs = []state.DomainMappingPair{}
 		mappings := site.GetDomainMappings()
 		if len(mappings) > 0 {
-			// Convert existing mappings to UI pairs
 			for _, mapping := range mappings {
-				// Find domain name
 				domainName := ""
 				for _, d := range s.Domains {
 					if d.ID == mapping.DomainID {
@@ -427,63 +536,95 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 					Subdomain:  mapping.Subdomain,
 					DomainName: domainName,
 					DomainID:   mapping.DomainID.String(),
-					Port:       fmt.Sprintf("%d", mapping.Port),
+					Port:       models.FormatPortMapping(mapping.Port, mapping.HostPort),
 				})
 			}
 		} else {
-			// Start with one empty pair
 			s.DomainMappingPairs = []state.DomainMappingPair{{Subdomain: "", DomainName: "", DomainID: "", Port: "8080"}}
 		}
-	}
 
-	// Initialize ENV vars from existing site if needed
-	if len(s.EnvVarPairs) == 0 {
-		if len(site.EnvironmentVars) > 0 {
-			// Convert map to pairs
+		// Initialize ENV vars from current site data (only for container sites)
+		s.EnvVarPairs = []state.EnvVarPair{}
+		if !isCompose && len(site.EnvironmentVars) > 0 {
 			for key, value := range site.EnvironmentVars {
 				s.EnvVarPairs = append(s.EnvVarPairs, state.EnvVarPair{
 					Key:   key,
 					Value: value,
 				})
 			}
-		} else {
-			// Start with one empty pair
+		}
+		if len(s.EnvVarPairs) == 0 {
 			s.EnvVarPairs = []state.EnvVarPair{{Key: "", Value: ""}}
 		}
+
+		// Reset field index to first form field
+		s.CurrentFieldIndex = 0
+
+		s.EditFormInitialized = true
 	}
 
 	title := titleStyle.Render("Edit Site: " + site.Name)
 
-	labels := []string{
-		"Name:",
-		"Node:",
-		"Docker Image:",
-		"Docker Username:",
-		"Docker Token:",
-		"SSL Email (for Let's Encrypt):",
-		"Config File Path (optional):",
+	// Build fields string
+	var fields string
+
+	// Site Type indicator (read-only for edit mode)
+	siteTypeValue := "Container"
+	if isCompose {
+		siteTypeValue = "Compose"
+	}
+	siteTypeLine := "  Deployment Type: " + siteTypeValue + " (read-only)\n"
+	fields += siteTypeLine
+
+	// Define labels based on site type
+	var labels []string
+	if isCompose {
+		labels = []string{
+			"Name:",
+			"Node:",
+			"Compose Content:",
+			"", // Hidden (docker username)
+			"", // Hidden (docker token)
+			"SSL Email (for Let's Encrypt):",
+			"", // Hidden (config file)
+		}
+	} else {
+		labels = []string{
+			"Name:",
+			"Node:",
+			"Docker Image:",
+			"Docker Username:",
+			"Docker Token:",
+			"SSL Email (for Let's Encrypt):",
+			"Config File Path (optional):",
+		}
 	}
 
 	// Render each field with zones
-	var fields string
 	for i, label := range labels {
-		value := s.FormFields[i]
-		displayValue := value
-
-		// Show cursor if focused
-		if i == s.CurrentFieldIndex {
-			displayValue = value + "_"
-			label = "> " + label // Show arrow for focused field
-		} else {
-			label = "  " + label
+		// Skip hidden fields (empty labels)
+		if label == "" {
+			continue
 		}
 
+		value := s.FormFields[i]
+		displayValue := value
+		isFocused := i == s.CurrentFieldIndex
+
+		// Show cursor if focused
+		if isFocused {
+			displayValue = value + "_"
+		}
+
+		// Render label with focus styling
+		styledLabel := renderFieldLabel(label, isFocused)
+
 		// Wrap the entire field line in a clickable zone
-		fieldLine := label + " " + displayValue + "\n"
+		fieldLine := styledLabel + " " + displayValue + "\n"
 		fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
 
 		// Show dropdown options for Node (index 1) when focused
-		if i == s.CurrentFieldIndex && i == 1 && s.DropdownOpen {
+		if isFocused && i == 1 && s.DropdownOpen {
 			// Node dropdown
 			dropdownOptions := renderDropdownOptions(s, s.Nodes, s.DropdownIndex, func(n models.Node) string {
 				return n.Name
@@ -496,11 +637,12 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	domainMappingsSection := renderDomainMappingsSection(s, zm)
 	fields += "\n" + domainMappingsSection
 
-	// Render ENV vars section
-	envSection := renderEnvVarsSection(s, zm)
-	fields += "\n" + envSection
+	// Add ENV vars hint (only for container deployments)
+	if !isCompose {
+		fields += "\n" + helpStyle.Render("Press 'v' to edit environment variables")
+	}
 
-	helpText := "\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel"
+	helpText := "\nTab/Shift+Tab to navigate, Enter to save, Esc to cancel"
 	switch s.CurrentFieldIndex {
 	case 1:
 		// On Node dropdown field
@@ -509,24 +651,33 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		} else {
 			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
 		}
+	case 2:
+		if isCompose {
+			helpText = "\nCompose content is read-only (re-deploy to change)"
+		} else {
+			helpText = "\nDocker image to deploy (e.g., nginx:latest, myrepo/myimage:v1)"
+		}
 	case 3:
-		helpText = "\nLeave black to skip Docker Auth (if image is public)"
+		helpText = "\nLeave blank to skip Docker Auth (if image is public)"
 	case 4:
-		helpText = "\nLeave black to skip Docker Auth (if image is public)"
+		helpText = "\nLeave blank to skip Docker Auth (if image is public)"
 	case 5:
 		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
 	case 6:
-		helpText = "\nEnter full path to config file (will be loaded when site is created)"
-	case 100:
-		// Special index for ENV vars
-		helpText = "\nType key/value, Tab to switch between key/value, +/- buttons to add/remove pairs"
+		helpText = "\nEnter full path to config file (will be loaded when site is saved)"
 	case 200:
 		// Special index for domain mappings
 		helpText = "\nSelect subdomain/domain/port, Tab to switch fields, +/- buttons to add/remove mappings"
 	}
 
 	help := helpStyle.Render(helpText)
-	note := helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings/ENV vars, - to remove")
+
+	var note string
+	if isCompose {
+		note = helpStyle.Render("Note: Compose site • To change compose content, delete and recreate the site")
+	} else {
+		note = helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings, - to remove • Press 'v' for ENV vars")
+	}
 
 	return title + "\n\n" + fields + "\n" + help + "\n" + note
 }
@@ -567,13 +718,14 @@ func renderEnvVarsSection(s *state.AppState, zm *zone.Manager) string {
 			valueDisplay = valueDisplay[:cursor] + "_" + valueDisplay[cursor:]
 		}
 
-		// Build the row
-		prefix := "  "
-		if isFocused {
-			prefix = "> "
-		}
+		// Build the row with separate focus styling for Key and Value
+		keyFocused := isFocused && s.EnvVarFocusedField == 0
+		valueFocused := isFocused && s.EnvVarFocusedField == 1
 
-		line := fmt.Sprintf("%s[%d] Key: %-20s Value: %-30s", prefix, i+1, keyValue, valueDisplay)
+		styledKeyLabel := renderFieldLabel(fmt.Sprintf("[%d] Key:", i+1), keyFocused)
+		styledValueLabel := renderFieldLabel("Value:", valueFocused)
+
+		line := fmt.Sprintf("%s %-20s %s %-30s", styledKeyLabel, keyValue, styledValueLabel, valueDisplay)
 
 		// Add +/- buttons
 		addBtn := "+ "
@@ -588,8 +740,10 @@ func renderEnvVarsSection(s *state.AppState, zm *zone.Manager) string {
 			keyZoneID := fmt.Sprintf("env-key:%d", i)
 			valueZoneID := fmt.Sprintf("env-value:%d", i)
 
-			section.WriteString(zm.Mark(keyZoneID, prefix+"Key: "))
-			section.WriteString(zm.Mark(valueZoneID, fmt.Sprintf("%-20s Value: %-30s ", keyValue, valueDisplay)))
+			section.WriteString(zm.Mark(keyZoneID, styledKeyLabel+" "))
+			section.WriteString(fmt.Sprintf("%-20s ", keyValue))
+			section.WriteString(zm.Mark(valueZoneID, styledValueLabel+" "))
+			section.WriteString(fmt.Sprintf("%-30s ", valueDisplay))
 			section.WriteString(zm.Mark(addZoneID, addBtn))
 			if len(s.EnvVarPairs) > 1 || i > 0 {
 				section.WriteString(zm.Mark(removeZoneID, removeBtn))
@@ -648,14 +802,12 @@ func renderDomainMappingsSection(s *state.AppState, zm *zone.Manager) string {
 			portValue = portValue[:cursor] + "_" + portValue[cursor:]
 		}
 
-		// Build the row
-		prefix := "  "
-		if isFocused {
-			prefix = "> "
-		}
+		// Build the row with focus styling
+		rowLabel := fmt.Sprintf("[%d] Subdomain:", i+1)
+		styledPrefix := renderFieldLabel(rowLabel, isFocused)
 
-		line := fmt.Sprintf("%s[%d] Subdomain: %-15s Domain: %-25s Port: %-6s",
-			prefix, i+1, subdomainValue, domainDisplay, portValue)
+		line := fmt.Sprintf("%s %-15s Domain: %-25s Port (container:host): %-6s",
+			styledPrefix, subdomainValue, domainDisplay, portValue)
 
 		// Add +/- buttons
 		addBtn := "+ "
@@ -671,9 +823,9 @@ func renderDomainMappingsSection(s *state.AppState, zm *zone.Manager) string {
 			domainZoneID := fmt.Sprintf("domain-domain:%d", i)
 			portZoneID := fmt.Sprintf("domain-port:%d", i)
 
-			section.WriteString(zm.Mark(subdomainZoneID, prefix+fmt.Sprintf("[%d] Subdomain: %-15s ", i+1, subdomainValue)))
+			section.WriteString(zm.Mark(subdomainZoneID, styledPrefix+fmt.Sprintf(" %-15s ", subdomainValue)))
 			section.WriteString(zm.Mark(domainZoneID, fmt.Sprintf("Domain: %-25s ", domainDisplay)))
-			section.WriteString(zm.Mark(portZoneID, fmt.Sprintf("Port: %-6s ", portValue)))
+			section.WriteString(zm.Mark(portZoneID, fmt.Sprintf("Port (container:host): %-6s ", portValue)))
 			section.WriteString(zm.Mark(addZoneID, addBtn))
 			if len(s.DomainMappingPairs) > 1 || i > 0 {
 				section.WriteString(zm.Mark(removeZoneID, removeBtn))
@@ -805,4 +957,41 @@ func renderSiteSidebar(s *state.AppState, site *models.Site) string {
 
 	content := domainInfo + "\n\n" + nodeInfo
 	return sidebarStyle.Render(title + "\n\n" + content)
+}
+
+// RenderSiteEnvVars renders the dedicated environment variables screen
+func RenderSiteEnvVars(s *state.AppState) string {
+	return RenderSiteEnvVarsWithZones(s, nil)
+}
+
+// RenderSiteEnvVarsWithZones renders the ENV vars screen with clickable zones
+func RenderSiteEnvVarsWithZones(s *state.AppState, zm *zone.Manager) string {
+	// Get site being edited
+	site := s.GetSiteByID(s.SelectedSiteID)
+	if site == nil {
+		return titleStyle.Render("Error: Site not found")
+	}
+
+	title := titleStyle.Render("🔧 Environment Variables: " + site.Name)
+
+	// Initialize ENV vars from site if not already loaded
+	if len(s.EnvVarPairs) == 0 {
+		// Load from site
+		for key, value := range site.EnvironmentVars {
+			s.EnvVarPairs = append(s.EnvVarPairs, state.EnvVarPair{Key: key, Value: value})
+		}
+		if len(s.EnvVarPairs) == 0 {
+			s.EnvVarPairs = []state.EnvVarPair{{Key: "", Value: ""}}
+		}
+		s.EnvVarFocusedPair = 0
+		s.EnvVarFocusedField = 0
+		s.CursorPosition = 0
+	}
+
+	// Render ENV table (reuse existing renderEnvVarsSection)
+	envSection := renderEnvVarsSection(s, zm)
+
+	help := helpStyle.Render("\nTab: switch field • Up/Down: navigate pairs • +/-: add/remove • Enter: save • Esc: back")
+
+	return title + "\n\n" + envSection + "\n" + help
 }

@@ -10,9 +10,9 @@ import (
 type NodeClient interface {
 	// Site deployment operations
 	DeploySite(endpoint, apiKey string, site *models.Site, domainName string) error
-	DeleteSite(endpoint, apiKey string, siteID uuid.UUID) error
-	GetSiteStatus(endpoint, apiKey string, siteID uuid.UUID) (*models.SiteStatus, error)
-	StopSite(endpoint, apiKey string, siteID uuid.UUID) error
+	DeleteSite(endpoint, apiKey string, siteID uuid.UUID, domain, siteName string, siteType models.SiteType) error
+	GetSiteStatus(endpoint, apiKey string, siteID uuid.UUID, siteName string, siteType models.SiteType) (*models.SiteStatus, error)
+	StopSite(endpoint, apiKey string, siteID uuid.UUID, siteName string, siteType models.SiteType) error
 	RestartSite(endpoint, apiKey string, siteID uuid.UUID) error
 
 	// Node health and monitoring

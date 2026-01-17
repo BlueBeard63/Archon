@@ -982,6 +982,8 @@ func (m Model) spawnStopSite(siteID uuid.UUID) tea.Cmd {
 			node.APIEndpoint,
 			node.APIKey,
 			siteID,
+			site.Name,
+			site.GetSiteType(),
 		)
 
 		return SiteOperationResultMsg{
