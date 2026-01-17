@@ -10,9 +10,26 @@ import (
 
 	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/BlueBeard63/archon/internal/state"
-	"github.com/BlueBeard63/archon/internal/ui"
 	"github.com/BlueBeard63/archon/internal/ui/components"
 )
+
+// Colors for focused field styling (local to avoid circular import with ui package)
+var (
+	colorPrimary = lipgloss.Color("#7C3AED") // Purple
+
+	// formLabelFocusedStyle is the style for focused form field labels
+	formLabelFocusedStyle = lipgloss.NewStyle().
+				Foreground(colorPrimary).
+				Bold(true)
+)
+
+// renderFieldLabel renders a field label with focus indicator and styling
+func renderFieldLabel(label string, focused bool) string {
+	if focused {
+		return formLabelFocusedStyle.Render("> " + label)
+	}
+	return "  " + label
+}
 
 // RenderSitesList renders the sites list screen with buttons
 func RenderSitesList(s *state.AppState) string {
@@ -320,7 +337,7 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	var fields string
 
 	// Site Type selector (special field index -1, rendered first)
-	siteTypeLabel := ui.RenderFieldLabel("Deployment Type:", s.CurrentFieldIndex == -1)
+	siteTypeLabel := renderFieldLabel("Deployment Type:", s.CurrentFieldIndex == -1)
 	siteTypeValue := "Container"
 	if isCompose {
 		siteTypeValue = "Compose"
@@ -386,7 +403,7 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 
 		// Render label with focus styling
-		styledLabel := ui.RenderFieldLabel(label, isFocused)
+		styledLabel := renderFieldLabel(label, isFocused)
 
 		// Wrap the entire field line in a clickable zone
 		fieldLine := styledLabel + " " + displayValue + "\n"
@@ -600,7 +617,7 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 
 		// Render label with focus styling
-		styledLabel := ui.RenderFieldLabel(label, isFocused)
+		styledLabel := renderFieldLabel(label, isFocused)
 
 		// Wrap the entire field line in a clickable zone
 		fieldLine := styledLabel + " " + displayValue + "\n"
@@ -703,7 +720,7 @@ func renderEnvVarsSection(s *state.AppState, zm *zone.Manager) string {
 
 		// Build the row with focus styling
 		rowLabel := fmt.Sprintf("[%d] Key:", i+1)
-		styledPrefix := ui.RenderFieldLabel(rowLabel, isFocused)
+		styledPrefix := renderFieldLabel(rowLabel, isFocused)
 
 		line := fmt.Sprintf("%s %-20s Value: %-30s", styledPrefix, keyValue, valueDisplay)
 
@@ -782,7 +799,7 @@ func renderDomainMappingsSection(s *state.AppState, zm *zone.Manager) string {
 
 		// Build the row with focus styling
 		rowLabel := fmt.Sprintf("[%d] Subdomain:", i+1)
-		styledPrefix := ui.RenderFieldLabel(rowLabel, isFocused)
+		styledPrefix := renderFieldLabel(rowLabel, isFocused)
 
 		line := fmt.Sprintf("%s %-15s Domain: %-25s Port (container:host): %-6s",
 			styledPrefix, subdomainValue, domainDisplay, portValue)

@@ -16,7 +16,6 @@ import (
 
 	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/BlueBeard63/archon/internal/state"
-	"github.com/BlueBeard63/archon/internal/ui"
 	"github.com/BlueBeard63/archon/internal/ui/components"
 )
 
@@ -207,7 +206,7 @@ func RenderNodeCreate(s *state.AppState) string {
 		}
 
 		// Render label with focus styling
-		styledLabel := ui.RenderFieldLabel(label, isFocused)
+		styledLabel := renderFieldLabel(label, isFocused)
 
 		// Show API key as read-only
 		if i == 3 {
@@ -298,7 +297,7 @@ func RenderNodeCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 
 		// Render label with focus styling
-		styledLabel := ui.RenderFieldLabel(label, isFocused)
+		styledLabel := renderFieldLabel(label, isFocused)
 
 		// Show API key as read-only
 		if i == 3 {
@@ -380,7 +379,7 @@ func RenderNodeEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 
 		// Render label with focus styling
-		styledLabel := ui.RenderFieldLabel(label, isFocused)
+		styledLabel := renderFieldLabel(label, isFocused)
 
 		// Wrap the field line in a clickable zone
 		fieldLine := styledLabel + " " + displayValue + "\n"
@@ -517,7 +516,7 @@ func RenderNodeConfigSaveWithZones(s *state.AppState, zm *zone.Manager) string {
 
 	// Render the file path field with focus styling
 	isFocused := s.CurrentFieldIndex == 0
-	styledLabel := ui.RenderFieldLabel("File Path:", isFocused)
+	styledLabel := renderFieldLabel("File Path:", isFocused)
 
 	value := s.FormFields[0]
 	displayValue := value

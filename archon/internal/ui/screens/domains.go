@@ -10,7 +10,6 @@ import (
 
 	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/BlueBeard63/archon/internal/state"
-	"github.com/BlueBeard63/archon/internal/ui"
 	"github.com/BlueBeard63/archon/internal/ui/components"
 )
 
@@ -240,7 +239,7 @@ func RenderDomainCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 
 		// Render label with focus styling
-		styledLabel := ui.RenderFieldLabel(label, isFocused)
+		styledLabel := renderFieldLabel(label, isFocused)
 
 		// Wrap the field line in a clickable zone
 		fieldLine := styledLabel + " " + displayValue + "\n"
@@ -420,7 +419,7 @@ func RenderDomainEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 
 		// Render label with focus styling
-		styledLabel := ui.RenderFieldLabel(label, isFocused)
+		styledLabel := renderFieldLabel(label, isFocused)
 
 		// Wrap the field line in a clickable zone
 		fieldLine := styledLabel + " " + displayValue + "\n"
