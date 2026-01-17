@@ -448,6 +448,13 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.state.DropdownOpen {
 			m.state.DropdownOpen = false
 		}
+
+		// Auto-detect ports when leaving compose file path field (index 2)
+		previousField := m.state.CurrentFieldIndex
+		if previousField == 2 && m.state.SiteTypeSelection == "compose" && m.state.FormFields[2] != "" {
+			m.tryDetectComposePorts()
+		}
+
 		// Move to next visible field
 		m.state.CurrentFieldIndex = getNextVisibleField(m.state.CurrentFieldIndex)
 		if m.state.CurrentFieldIndex == 200 {
@@ -2800,6 +2807,32 @@ func (m Model) handleDeleteNode(nodeID uuid.UUID) (tea.Model, tea.Cmd) {
 
 	m.state.AddNotification("Node not found", "error")
 	return m, nil
+}
+
+// tryDetectComposePorts attempts to detect ports from the compose file and pre-populate domain mapping
+func (m *Model) tryDetectComposePorts() {
+	path := m.state.FormFields[2]
+	if path == "" {
+		return
+	}
+
+	_, ports, err := loadComposeFile(path)
+	if err != nil {
+		// Show error but don't block - user may fix the path
+		m.state.AddNotification(err.Error(), "warning")
+		return
+	}
+
+	if len(ports) > 0 {
+		firstPort := compose.GetFirstPort(ports)
+		if firstPort > 0 && len(m.state.DomainMappingPairs) > 0 {
+			// Only update if port is still the default
+			if m.state.DomainMappingPairs[0].Port == "8080" || m.state.DomainMappingPairs[0].Port == "" {
+				m.state.DomainMappingPairs[0].Port = fmt.Sprintf("%d", firstPort)
+				m.state.AddNotification(fmt.Sprintf("Detected port %d from compose file", firstPort), "info")
+			}
+		}
+	}
 }
 
 // loadComposeFile reads and validates a Docker Compose file from the given path
