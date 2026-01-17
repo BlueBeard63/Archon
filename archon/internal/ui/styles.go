@@ -75,6 +75,11 @@ var (
 			Foreground(ColorTextMuted).
 			Bold(true)
 
+	// FormLabelFocusedStyle is the style for focused form field labels
+	FormLabelFocusedStyle = lipgloss.NewStyle().
+				Foreground(ColorPrimary).
+				Bold(true)
+
 	// FormInputStyle is the style for form input fields
 	FormInputStyle = lipgloss.NewStyle().
 			Foreground(ColorText).
@@ -198,4 +203,12 @@ func MaxHeight(windowHeight int) int {
 		return 10
 	}
 	return maxH
+}
+
+// RenderFieldLabel renders a field label with focus indicator and styling
+func RenderFieldLabel(label string, focused bool) string {
+	if focused {
+		return FormLabelFocusedStyle.Render("> " + label)
+	}
+	return "  " + label
 }
