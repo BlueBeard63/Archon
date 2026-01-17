@@ -16,14 +16,23 @@ const (
 	SiteStatusStopped   SiteStatus = "stopped"
 )
 
+type SiteType string
+
+const (
+	SiteTypeContainer SiteType = "container"
+	SiteTypeCompose   SiteType = "compose"
+)
+
 type Site struct {
 	ID              uuid.UUID         `json:"id" toml:"id"`
 	Name            string            `json:"name" toml:"name"`
-	DomainID        uuid.UUID         `json:"domain_id" toml:"domain_id"` // Legacy: single domain (kept for backward compatibility)
+	SiteType        SiteType          `json:"site_type" toml:"site_type"`                     // container or compose (defaults to container)
+	DomainID        uuid.UUID         `json:"domain_id" toml:"domain_id"`                     // Legacy: single domain (kept for backward compatibility)
 	NodeID          uuid.UUID         `json:"node_id" toml:"node_id"`
 	DockerImage     string            `json:"docker_image" toml:"docker_image"`
 	DockerUsername  string            `json:"docker_username,omitempty" toml:"docker_username,omitempty"`
 	DockerToken     string            `json:"docker_token,omitempty" toml:"docker_token,omitempty"`
+	ComposeContent  string            `json:"compose_content,omitempty" toml:"compose_content,omitempty"` // Docker Compose YAML content (for compose sites)
 	EnvironmentVars map[string]string `json:"environment_vars" toml:"environment_vars"`
 	Port            int               `json:"port" toml:"port"`                                           // Legacy: single port (kept for backward compatibility)
 	DomainMappings  []DomainMapping   `json:"domain_mappings,omitempty" toml:"domain_mappings,omitempty"` // New: multiple domain-port mappings
@@ -73,7 +82,8 @@ func NewSite(name string, domainID, nodeID uuid.UUID, dockerImage string, port i
 	site := &Site{
 		ID:              uuid.New(),
 		Name:            name,
-		DomainID:        domainID, // Set legacy field for backward compatibility
+		SiteType:        SiteTypeContainer, // Default to container deployment
+		DomainID:        domainID,          // Set legacy field for backward compatibility
 		NodeID:          nodeID,
 		DockerImage:     dockerImage,
 		DockerUsername:  "",
@@ -141,4 +151,17 @@ func GetFullDomain(domainName, subdomain string) string {
 		return domainName
 	}
 	return subdomain + "." + domainName
+}
+
+// IsCompose returns true if this site is deployed via Docker Compose
+func (s *Site) IsCompose() bool {
+	return s.SiteType == SiteTypeCompose
+}
+
+// GetSiteType returns the site type, defaulting to container for backwards compatibility
+func (s *Site) GetSiteType() SiteType {
+	if s.SiteType == "" {
+		return SiteTypeContainer
+	}
+	return s.SiteType
 }
