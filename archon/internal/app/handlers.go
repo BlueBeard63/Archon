@@ -2014,15 +2014,23 @@ func (m Model) handleSiteEditSubmit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Validate required fields: Name(0), Node(1), Docker Image(2)
-	// SSL Email(3) and Config File(4) are optional
-	requiredFields := []int{0, 1, 2}
-	fieldNames := map[int]string{0: "Name", 1: "Node", 2: "Docker Image"}
-	for _, i := range requiredFields {
-		if m.state.FormFields[i] == "" {
-			m.state.AddNotification("Required field "+fieldNames[i]+" must be filled", "error")
-			return m, nil
-		}
+	isCompose := m.state.Sites[siteIndex].GetSiteType() == models.SiteTypeCompose
+
+	// Validate required fields based on site type
+	// Name(0), Node(1) always required
+	// For container: Docker Image(2) required
+	// For compose: field 2 is read-only placeholder, skip validation
+	if m.state.FormFields[0] == "" {
+		m.state.AddNotification("Required field Name must be filled", "error")
+		return m, nil
+	}
+	if m.state.FormFields[1] == "" {
+		m.state.AddNotification("Required field Node must be filled", "error")
+		return m, nil
+	}
+	if !isCompose && m.state.FormFields[2] == "" {
+		m.state.AddNotification("Required field Docker Image must be filled", "error")
+		return m, nil
 	}
 
 	// Find node by name (index 1)
@@ -2091,59 +2099,70 @@ func (m Model) handleSiteEditSubmit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Update site fields
+	// Update common site fields
 	oldName := m.state.Sites[siteIndex].Name
 	m.state.Sites[siteIndex].Name = m.state.FormFields[0]
 	m.state.Sites[siteIndex].DomainID = firstDomainID
 	m.state.Sites[siteIndex].NodeID = nodeID
-	m.state.Sites[siteIndex].DockerImage = m.state.FormFields[2] // Docker Image at index 2
 	m.state.Sites[siteIndex].Port = firstPort
-	m.state.Sites[siteIndex].SSLEmail = strings.TrimSpace(m.state.FormFields[3]) // SSL Email at index 3
+	m.state.Sites[siteIndex].SSLEmail = strings.TrimSpace(m.state.FormFields[5]) // SSL Email at index 5
 
 	// Update domain mappings with all mappings from form
 	m.state.Sites[siteIndex].DomainMappings = domainMappings
 
-	// Update environment variables from EnvVarPairs
-	m.state.Sites[siteIndex].EnvironmentVars = make(map[string]string)
-	for _, pair := range m.state.EnvVarPairs {
-		key := strings.TrimSpace(pair.Key)
-		value := strings.TrimSpace(pair.Value)
-		if key != "" {
-			m.state.Sites[siteIndex].EnvironmentVars[key] = value
-		}
-	}
+	// For container deployments: update docker-specific fields
+	if !isCompose {
+		m.state.Sites[siteIndex].DockerImage = m.state.FormFields[2]                     // Docker Image at index 2
+		m.state.Sites[siteIndex].DockerUsername = strings.TrimSpace(m.state.FormFields[3]) // Docker Username at index 3
+		m.state.Sites[siteIndex].DockerToken = strings.TrimSpace(m.state.FormFields[4])    // Docker Token at index 4
 
-	// Load config file (field 4) if provided
-	if m.state.FormFields[4] != "" {
-		configPath := strings.TrimSpace(m.state.FormFields[4])
-		content, err := os.ReadFile(configPath)
-		if err != nil {
-			m.state.AddNotification("Failed to read config file: "+err.Error(), "warning")
-		} else {
-			// Extract filename from path
-			filename := filepath.Base(configPath)
-			// Replace existing config files
-			m.state.Sites[siteIndex].ConfigFiles = []models.ConfigFile{
-				{
-					Name:          filename,
-					Content:       string(content),
-					ContainerPath: "/config/" + filename,
-				},
+		// Update environment variables from EnvVarPairs
+		m.state.Sites[siteIndex].EnvironmentVars = make(map[string]string)
+		for _, pair := range m.state.EnvVarPairs {
+			key := strings.TrimSpace(pair.Key)
+			value := strings.TrimSpace(pair.Value)
+			if key != "" {
+				m.state.Sites[siteIndex].EnvironmentVars[key] = value
+			}
+		}
+
+		// Load config file (field 6) if provided
+		if m.state.FormFields[6] != "" {
+			configPath := strings.TrimSpace(m.state.FormFields[6])
+			content, err := os.ReadFile(configPath)
+			if err != nil {
+				m.state.AddNotification("Failed to read config file: "+err.Error(), "warning")
+			} else {
+				// Extract filename from path
+				filename := filepath.Base(configPath)
+				// Replace existing config files
+				m.state.Sites[siteIndex].ConfigFiles = []models.ConfigFile{
+					{
+						Name:          filename,
+						Content:       string(content),
+						ContainerPath: "/config/" + filename,
+					},
+				}
 			}
 		}
 	}
+	// Note: For compose sites, SiteType and ComposeContent are preserved (read-only in edit)
 
 	// Update timestamp
 	m.state.Sites[siteIndex].UpdatedAt = time.Now()
 
 	// Build notification message
+	siteTypeLabel := "Container"
+	if isCompose {
+		siteTypeLabel = "Compose"
+	}
 	var changes []string
 	if oldName != m.state.Sites[siteIndex].Name {
 		changes = append(changes, fmt.Sprintf("name: %s → %s", oldName, m.state.Sites[siteIndex].Name))
 	}
 	changes = append(changes, "updated site configuration")
 
-	message := "Site updated: " + strings.Join(changes, ", ")
+	message := fmt.Sprintf("%s site updated: %s", siteTypeLabel, strings.Join(changes, ", "))
 	m.state.AddNotification(message, "success")
 
 	// Auto-save config if enabled
