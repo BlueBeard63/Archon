@@ -16,6 +16,7 @@ import (
 
 	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/BlueBeard63/archon/internal/state"
+	"github.com/BlueBeard63/archon/internal/ui"
 	"github.com/BlueBeard63/archon/internal/ui/components"
 )
 
@@ -198,27 +199,25 @@ func RenderNodeCreate(s *state.AppState) string {
 	for i, label := range labels {
 		value := s.FormFields[i]
 		displayValue := value
+		isFocused := i == s.CurrentFieldIndex
 
 		// Show cursor if focused (but not for proxy or API key field)
-		if i == s.CurrentFieldIndex && i < 2 {
+		if isFocused && i < 2 {
 			displayValue = value + "_"
-			label = "> " + label // Show arrow for focused field
-		} else if i == s.CurrentFieldIndex && i == 2 {
-			// Proxy field is focused but no cursor (uses dropdown)
-			label = "> " + label
-		} else {
-			label = "  " + label
 		}
+
+		// Render label with focus styling
+		styledLabel := ui.RenderFieldLabel(label, isFocused)
 
 		// Show API key as read-only
 		if i == 3 {
 			displayValue = lipgloss.NewStyle().Faint(true).Render(value)
 		}
 
-		fields += label + " " + displayValue + "\n"
+		fields += styledLabel + " " + displayValue + "\n"
 
 		// Show dropdown options for Proxy field (index 2) when focused
-		if i == s.CurrentFieldIndex && i == 2 && s.DropdownOpen {
+		if isFocused && i == 2 && s.DropdownOpen {
 			proxies := []string{"nginx", "apache", "traefik"}
 			dropdownOptions := renderProxyDropdown(proxies, s.DropdownIndex)
 			fields += dropdownOptions + "\n"
@@ -291,17 +290,15 @@ func RenderNodeCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	for i, label := range labels {
 		value := s.FormFields[i]
 		displayValue := value
+		isFocused := i == s.CurrentFieldIndex
 
 		// Show cursor if focused (but not for proxy or API key field)
-		if i == s.CurrentFieldIndex && i < 2 {
+		if isFocused && i < 2 {
 			displayValue = value + "_"
-			label = "> " + label // Show arrow for focused field
-		} else if i == s.CurrentFieldIndex && i == 2 {
-			// Proxy field is focused but no cursor (uses dropdown)
-			label = "> " + label
-		} else {
-			label = "  " + label
 		}
+
+		// Render label with focus styling
+		styledLabel := ui.RenderFieldLabel(label, isFocused)
 
 		// Show API key as read-only
 		if i == 3 {
@@ -309,7 +306,7 @@ func RenderNodeCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 
 		// Wrap the entire field line in a clickable zone (only for editable fields)
-		fieldLine := label + " " + displayValue + "\n"
+		fieldLine := styledLabel + " " + displayValue + "\n"
 		if i < 3 {
 			fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
 		} else {
@@ -317,7 +314,7 @@ func RenderNodeCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 
 		// Show dropdown options for Proxy field (index 2) when focused
-		if i == s.CurrentFieldIndex && i == 2 && s.DropdownOpen {
+		if isFocused && i == 2 && s.DropdownOpen {
 			proxies := []string{"nginx", "apache", "traefik"}
 			dropdownOptions := renderProxyDropdown(proxies, s.DropdownIndex)
 			fields += dropdownOptions + "\n"
@@ -375,20 +372,18 @@ func RenderNodeEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	for i, label := range labels {
 		value := s.FormFields[i]
 		displayValue := value
+		isFocused := i == s.CurrentFieldIndex
 
 		// Show cursor if focused (but not for proxy field)
-		if i == s.CurrentFieldIndex && i < 2 {
+		if isFocused && i < 2 {
 			displayValue = value + "_"
-			label = "> " + label
-		} else if i == s.CurrentFieldIndex && i == 2 {
-			// Proxy field is focused but no cursor (uses dropdown)
-			label = "> " + label
-		} else {
-			label = "  " + label
 		}
 
+		// Render label with focus styling
+		styledLabel := ui.RenderFieldLabel(label, isFocused)
+
 		// Wrap the field line in a clickable zone
-		fieldLine := label + " " + displayValue + "\n"
+		fieldLine := styledLabel + " " + displayValue + "\n"
 		if zm != nil {
 			fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
 		} else {
@@ -396,7 +391,7 @@ func RenderNodeEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 
 		// Show dropdown options for Proxy field (index 2) when focused
-		if i == s.CurrentFieldIndex && i == 2 && s.DropdownOpen {
+		if isFocused && i == 2 && s.DropdownOpen {
 			proxies := []string{"nginx", "apache", "traefik"}
 			dropdownOptions := renderProxyDropdown(proxies, s.DropdownIndex)
 			fields += dropdownOptions + "\n"
@@ -520,15 +515,13 @@ func RenderNodeConfigSaveWithZones(s *state.AppState, zm *zone.Manager) string {
 
 	title := titleStyle.Render("💾 Save Node Configuration")
 
-	// Render the file path field
-	label := "  File Path:"
-	if s.CurrentFieldIndex == 0 {
-		label = "> File Path:"
-	}
+	// Render the file path field with focus styling
+	isFocused := s.CurrentFieldIndex == 0
+	styledLabel := ui.RenderFieldLabel("File Path:", isFocused)
 
 	value := s.FormFields[0]
 	displayValue := value
-	if s.CurrentFieldIndex == 0 {
+	if isFocused {
 		// Show cursor at position
 		cursor := s.CursorPosition
 		if cursor < 0 {
@@ -541,7 +534,7 @@ func RenderNodeConfigSaveWithZones(s *state.AppState, zm *zone.Manager) string {
 	}
 
 	// Wrap in zone for click support
-	fieldLine := label + " " + displayValue + "\n"
+	fieldLine := styledLabel + " " + displayValue + "\n"
 	var fields string
 	if zm != nil {
 		fields = zm.Mark("field:0", fieldLine)
