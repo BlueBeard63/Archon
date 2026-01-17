@@ -780,14 +780,12 @@ func renderDomainMappingsSection(s *state.AppState, zm *zone.Manager) string {
 			portValue = portValue[:cursor] + "_" + portValue[cursor:]
 		}
 
-		// Build the row
-		prefix := "  "
-		if isFocused {
-			prefix = "> "
-		}
+		// Build the row with focus styling
+		rowLabel := fmt.Sprintf("[%d] Subdomain:", i+1)
+		styledPrefix := ui.RenderFieldLabel(rowLabel, isFocused)
 
-		line := fmt.Sprintf("%s[%d] Subdomain: %-15s Domain: %-25s Port (container:host): %-6s",
-			prefix, i+1, subdomainValue, domainDisplay, portValue)
+		line := fmt.Sprintf("%s %-15s Domain: %-25s Port (container:host): %-6s",
+			styledPrefix, subdomainValue, domainDisplay, portValue)
 
 		// Add +/- buttons
 		addBtn := "+ "
@@ -803,7 +801,7 @@ func renderDomainMappingsSection(s *state.AppState, zm *zone.Manager) string {
 			domainZoneID := fmt.Sprintf("domain-domain:%d", i)
 			portZoneID := fmt.Sprintf("domain-port:%d", i)
 
-			section.WriteString(zm.Mark(subdomainZoneID, prefix+fmt.Sprintf("[%d] Subdomain: %-15s ", i+1, subdomainValue)))
+			section.WriteString(zm.Mark(subdomainZoneID, styledPrefix+fmt.Sprintf(" %-15s ", subdomainValue)))
 			section.WriteString(zm.Mark(domainZoneID, fmt.Sprintf("Domain: %-25s ", domainDisplay)))
 			section.WriteString(zm.Mark(portZoneID, fmt.Sprintf("Port (container:host): %-6s ", portValue)))
 			section.WriteString(zm.Mark(addZoneID, addBtn))
