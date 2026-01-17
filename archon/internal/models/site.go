@@ -1,6 +1,9 @@
 package models
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,7 +57,8 @@ type ConfigFile struct {
 type DomainMapping struct {
 	DomainID  uuid.UUID `json:"domain_id" toml:"domain_id"`
 	Subdomain string    `json:"subdomain,omitempty" toml:"subdomain,omitempty"` // Optional subdomain (e.g., "www", "api", "app"). Empty = root domain
-	Port      int       `json:"port" toml:"port"`
+	Port      int       `json:"port" toml:"port"`                               // Container port
+	HostPort  int       `json:"host_port,omitempty" toml:"host_port,omitempty"` // Host port (optional, defaults to Port if not specified)
 }
 
 // GenerateTraefikLabels generates Docker labels for Traefik reverse proxy configuration
@@ -164,4 +168,70 @@ func (s *Site) GetSiteType() SiteType {
 		return SiteTypeContainer
 	}
 	return s.SiteType
+}
+
+// ParsePortMapping parses port notation from a string
+// Accepts formats:
+//   - "3000" - single port (container and host use same port)
+//   - "3000:3001" - container port 3000 mapped to host port 3001
+//
+// Returns (containerPort, hostPort, error)
+func ParsePortMapping(portStr string) (int, int, error) {
+	portStr = strings.TrimSpace(portStr)
+	if portStr == "" {
+		return 0, 0, fmt.Errorf("port string cannot be empty")
+	}
+
+	parts := strings.Split(portStr, ":")
+	if len(parts) == 1 {
+		// Single port - use same for both container and host
+		port, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid port: %s", portStr)
+		}
+		if port < 1 || port > 65535 {
+			return 0, 0, fmt.Errorf("port out of range (1-65535): %d", port)
+		}
+		return port, port, nil
+	} else if len(parts) == 2 {
+		// Container:Host format
+		containerPort, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid container port: %s", parts[0])
+		}
+		if containerPort < 1 || containerPort > 65535 {
+			return 0, 0, fmt.Errorf("container port out of range (1-65535): %d", containerPort)
+		}
+
+		hostPort, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid host port: %s", parts[1])
+		}
+		if hostPort < 1 || hostPort > 65535 {
+			return 0, 0, fmt.Errorf("host port out of range (1-65535): %d", hostPort)
+		}
+
+		return containerPort, hostPort, nil
+	}
+
+	return 0, 0, fmt.Errorf("invalid port format: %s (use '3000' or '3000:3001')", portStr)
+}
+
+// FormatPortMapping formats port mapping for display
+// If hostPort is 0 or same as containerPort, displays just the port number
+// Otherwise displays in "container:host" format
+func FormatPortMapping(containerPort, hostPort int) string {
+	if hostPort == 0 || hostPort == containerPort {
+		return fmt.Sprintf("%d", containerPort)
+	}
+	return fmt.Sprintf("%d:%d", containerPort, hostPort)
+}
+
+// GetEffectiveHostPort returns the host port for a domain mapping
+// If HostPort is not set (0), returns Port as the default
+func (dm *DomainMapping) GetEffectiveHostPort() int {
+	if dm.HostPort > 0 {
+		return dm.HostPort
+	}
+	return dm.Port
 }

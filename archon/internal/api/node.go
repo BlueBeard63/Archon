@@ -417,8 +417,9 @@ func (c *HTTPNodeClient) doRequest(method, url, apiKey string, body interface{})
 
 // DomainMapping represents a domain-to-port mapping for node API requests
 type DomainMapping struct {
-	Domain string `json:"domain"` // Full domain (e.g., "api.example.com")
-	Port   int    `json:"port"`   // Container port for this domain
+	Domain   string `json:"domain"`                // Full domain (e.g., "api.example.com")
+	Port     int    `json:"port"`                  // Container port for this domain
+	HostPort int    `json:"host_port,omitempty"`   // Host port (optional, defaults to Port if not specified)
 }
 
 // convertToNodeDomainMappings converts site domain mappings to node API format
@@ -450,8 +451,9 @@ func convertToNodeDomainMappings(site *models.Site, domainName string) []DomainM
 			fullDomain = mapping.Subdomain + "." + baseDomain
 		}
 		mappings = append(mappings, DomainMapping{
-			Domain: fullDomain,
-			Port:   mapping.Port,
+			Domain:   fullDomain,
+			Port:     mapping.Port,
+			HostPort: mapping.HostPort,
 		})
 	}
 	return mappings

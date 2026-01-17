@@ -79,8 +79,12 @@ func GenerateTraefikLabels(site *models.DeployRequest) map[string]string {
 		labels[fmt.Sprintf("traefik.http.routers.%s.rule", routerName)] = fmt.Sprintf("Host(`%s`)", mapping.Domain)
 		labels[fmt.Sprintf("traefik.http.routers.%s.entrypoints", routerName)] = "web"
 
-		// Service for this router
-		labels[fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port", routerName)] = fmt.Sprintf("%d", mapping.Port)
+		// Service for this router - use host port (HostPort if set, otherwise Port)
+		hostPort := mapping.Port
+		if mapping.HostPort > 0 {
+			hostPort = mapping.HostPort
+		}
+		labels[fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port", routerName)] = fmt.Sprintf("%d", hostPort)
 
 		// HTTPS configuration if SSL is enabled
 		if site.SSLEnabled {

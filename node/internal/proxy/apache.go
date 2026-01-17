@@ -167,8 +167,13 @@ func (a *ApacheManager) ConfigureForValidation(ctx context.Context, site *models
 	// Convert to template data using map
 	domainsMap := make(map[string]DomainMappingPair)
 	for _, mapping := range domainMappings {
+		// Use host port for proxy (HostPort if set, otherwise Port)
+		hostPort := mapping.Port
+		if mapping.HostPort > 0 {
+			hostPort = mapping.HostPort
+		}
 		domainsMap[mapping.Domain] = DomainMappingPair{
-			Port:     mapping.Port,
+			Port:     hostPort,
 			CertPath: "",
 			KeyPath:  "",
 		}
@@ -257,8 +262,13 @@ func (a *ApacheManager) Configure(ctx context.Context, site *models.DeployReques
 	// All domains use the same SAN certificate
 	domainsMap := make(map[string]DomainMappingPair)
 	for _, mapping := range domainMappings {
+		// Use host port for proxy (HostPort if set, otherwise Port)
+		hostPort := mapping.Port
+		if mapping.HostPort > 0 {
+			hostPort = mapping.HostPort
+		}
 		domainsMap[mapping.Domain] = DomainMappingPair{
-			Port:     mapping.Port,
+			Port:     hostPort,
 			CertPath: primaryCertPath,
 			KeyPath:  primaryKeyPath,
 		}
