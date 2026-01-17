@@ -10,6 +10,7 @@ import (
 
 	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/BlueBeard63/archon/internal/state"
+	"github.com/BlueBeard63/archon/internal/ui"
 	"github.com/BlueBeard63/archon/internal/ui/components"
 )
 
@@ -319,10 +320,7 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	var fields string
 
 	// Site Type selector (special field index -1, rendered first)
-	siteTypeLabel := "  Deployment Type:"
-	if s.CurrentFieldIndex == -1 {
-		siteTypeLabel = "> Deployment Type:"
-	}
+	siteTypeLabel := ui.RenderFieldLabel("Deployment Type:", s.CurrentFieldIndex == -1)
 	siteTypeValue := "Container"
 	if isCompose {
 		siteTypeValue = "Compose"
@@ -380,21 +378,22 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 
 		value := s.FormFields[i]
 		displayValue := value
+		isFocused := i == s.CurrentFieldIndex
 
 		// Show cursor if focused
-		if i == s.CurrentFieldIndex {
+		if isFocused {
 			displayValue = value + "_"
-			label = "> " + label // Show arrow for focused field
-		} else {
-			label = "  " + label
 		}
 
+		// Render label with focus styling
+		styledLabel := ui.RenderFieldLabel(label, isFocused)
+
 		// Wrap the entire field line in a clickable zone
-		fieldLine := label + " " + displayValue + "\n"
+		fieldLine := styledLabel + " " + displayValue + "\n"
 		fields += zm.Mark(fmt.Sprintf("field:%d", i), fieldLine)
 
 		// Show dropdown options for Node (index 1) when focused
-		if i == s.CurrentFieldIndex && i == 1 && s.DropdownOpen {
+		if isFocused && i == 1 && s.DropdownOpen {
 			// Node dropdown
 			dropdownOptions := renderDropdownOptions(s, s.Nodes, s.DropdownIndex, func(n models.Node) string {
 				return n.Name
