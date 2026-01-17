@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,11 +17,20 @@ const (
 	SiteStatusStopped   SiteStatus = "stopped"
 )
 
+type SiteType string
+
+const (
+	SiteTypeContainer SiteType = "container"
+	SiteTypeCompose   SiteType = "compose"
+)
+
 // DeployRequest is the request to deploy a site
 type DeployRequest struct {
 	ID              uuid.UUID         `json:"id"`
 	Name            string            `json:"name"`
-	Docker          Docker            `json:"docker"`
+	SiteType        SiteType          `json:"site_type"`                   // container or compose (defaults to container)
+	Docker          Docker            `json:"docker"`                      // Used for container deployments
+	ComposeContent  string            `json:"compose_content,omitempty"`   // Docker Compose YAML content (for compose deployments)
 	EnvironmentVars map[string]string `json:"environment_vars"`
 	DomainMappings  []DomainMapping   `json:"domain_mappings"`
 	SSLEnabled      bool              `json:"ssl_enabled"`
@@ -29,6 +39,32 @@ type DeployRequest struct {
 	SSLKey          string            `json:"ssl_key,omitempty"`   // Base64 encoded key
 	ConfigFiles     []ConfigFile      `json:"config_files"`
 	TraefikLabels   map[string]string `json:"traefik_labels,omitempty"`
+}
+
+// IsCompose returns true if this is a compose deployment
+func (r *DeployRequest) IsCompose() bool {
+	return r.SiteType == SiteTypeCompose
+}
+
+// Validate checks that required fields are present based on site type
+func (r *DeployRequest) Validate() error {
+	if r.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if len(r.DomainMappings) == 0 {
+		return fmt.Errorf("at least one domain mapping is required")
+	}
+
+	if r.IsCompose() {
+		if r.ComposeContent == "" {
+			return fmt.Errorf("compose content is required for compose deployments")
+		}
+	} else {
+		if r.Docker.Image == "" {
+			return fmt.Errorf("docker image is required for container deployments")
+		}
+	}
+	return nil
 }
 
 // DomainMapping represents a domain-to-port mapping for multi-domain sites
@@ -102,6 +138,7 @@ type ContainerMetrics struct {
 type Site struct {
 	ID              uuid.UUID         `json:"id"`
 	Name            string            `json:"name"`
+	SiteType        SiteType          `json:"site_type"` // container or compose
 	Domain          string            `json:"domain"`
 	DockerImage     string            `json:"docker_image"`
 	ContainerID     string            `json:"container_id"`
