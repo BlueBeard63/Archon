@@ -431,7 +431,7 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 	case 2:
 		if isCompose {
-			helpText = "\nEnter path to docker-compose.yml file"
+			helpText = "\nEnter path to docker-compose.yml file (port will be auto-detected)"
 		} else {
 			helpText = "\nDocker image to deploy (e.g., nginx:latest, myrepo/myimage:v1)"
 		}
@@ -448,14 +448,18 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		helpText = "\nType key/value, Tab to switch between key/value, +/- buttons to add/remove pairs"
 	case 200:
 		// Special index for domain mappings
-		helpText = "\nSelect subdomain/domain/port, Tab to switch fields, +/- buttons to add/remove mappings"
+		if isCompose {
+			helpText = "\nPort auto-detected from compose file • You can override it manually"
+		} else {
+			helpText = "\nSelect subdomain/domain/port, Tab to switch fields, +/- buttons to add/remove mappings"
+		}
 	}
 
 	help := helpStyle.Render(helpText)
 
 	var note string
 	if isCompose {
-		note = helpStyle.Render("Note: Compose deployment • Domain mappings apply to first service exposed port")
+		note = helpStyle.Render("Note: Compose deployment • Port auto-detected from compose file (can be overridden)")
 	} else {
 		note = helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings/ENV vars, - to remove")
 	}
