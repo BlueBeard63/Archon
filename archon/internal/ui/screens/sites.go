@@ -701,13 +701,11 @@ func renderEnvVarsSection(s *state.AppState, zm *zone.Manager) string {
 			valueDisplay = valueDisplay[:cursor] + "_" + valueDisplay[cursor:]
 		}
 
-		// Build the row
-		prefix := "  "
-		if isFocused {
-			prefix = "> "
-		}
+		// Build the row with focus styling
+		rowLabel := fmt.Sprintf("[%d] Key:", i+1)
+		styledPrefix := ui.RenderFieldLabel(rowLabel, isFocused)
 
-		line := fmt.Sprintf("%s[%d] Key: %-20s Value: %-30s", prefix, i+1, keyValue, valueDisplay)
+		line := fmt.Sprintf("%s %-20s Value: %-30s", styledPrefix, keyValue, valueDisplay)
 
 		// Add +/- buttons
 		addBtn := "+ "
@@ -722,7 +720,7 @@ func renderEnvVarsSection(s *state.AppState, zm *zone.Manager) string {
 			keyZoneID := fmt.Sprintf("env-key:%d", i)
 			valueZoneID := fmt.Sprintf("env-value:%d", i)
 
-			section.WriteString(zm.Mark(keyZoneID, prefix+"Key: "))
+			section.WriteString(zm.Mark(keyZoneID, styledPrefix+" "))
 			section.WriteString(zm.Mark(valueZoneID, fmt.Sprintf("%-20s Value: %-30s ", keyValue, valueDisplay)))
 			section.WriteString(zm.Mark(addZoneID, addBtn))
 			if len(s.EnvVarPairs) > 1 || i > 0 {
