@@ -161,6 +161,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSiteCreateKeys(msg)
 	case state.ScreenSiteEdit:
 		return m.handleSiteEditKeys(msg)
+	case state.ScreenSiteEnvVars:
+		return m.handleSiteEnvVarsKeys(msg)
 	case state.ScreenDomainsList:
 		return m.handleDomainsListKeys(msg)
 	case state.ScreenDomainCreate:
@@ -631,6 +633,23 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// handleSiteEnvVarsKeys handles keys on the dedicated ENV vars screen
+func (m Model) handleSiteEnvVarsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		// Go back to edit screen
+		m.state.NavigateBack()
+		return m, nil
+	case tea.KeyEnter:
+		// Save and go back (ENV vars already in state, will be saved with site)
+		m.state.NavigateBack()
+		return m, nil
+	default:
+		// Delegate to existing ENV input handler
+		return m.handleEnvVarInput(msg)
+	}
 }
 
 // handleDomainMappingInput handles keyboard input for domain mapping fields

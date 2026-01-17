@@ -88,6 +88,8 @@ func RenderScreen(s *state.AppState, zm *zone.Manager) string {
 		return screens.RenderSiteCreateWithZones(s, zm)
 	case state.ScreenSiteEdit:
 		return screens.RenderSiteEditWithZones(s, zm)
+	case state.ScreenSiteEnvVars:
+		return screens.RenderSiteEnvVarsWithZones(s, zm)
 	case state.ScreenDomainsList:
 		return screens.RenderDomainsListWithZones(s, zm)
 	case state.ScreenDomainCreate:
