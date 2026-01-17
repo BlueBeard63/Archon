@@ -273,14 +273,24 @@ func RenderSiteCreate(s *state.AppState) string {
 
 // RenderSiteCreateWithZones renders the site creation form with clickable fields
 func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
-	// Always ensure form is properly initialized (7 fields: name, node, docker image, docker username, docker token, ssl email, config file)
+	// Always ensure form is properly initialized (7 fields: name, node, docker image/compose path, docker username, docker token, ssl email, config file)
 	if len(s.FormFields) != 7 {
 		s.FormFields = []string{"", "", "", "", "", "", ""}
 	}
 
-	// Only reset field index if it's out of bounds
-	if s.CurrentFieldIndex < 0 || s.CurrentFieldIndex > 200 {
-		s.CurrentFieldIndex = 0
+	// Only reset field index if it's out of bounds (-1 is valid for site type selector)
+	if s.CurrentFieldIndex < -1 || s.CurrentFieldIndex > 200 {
+		s.CurrentFieldIndex = -1 // Start at site type selector
+	}
+
+	// Initialize site type selection if empty
+	if s.SiteTypeSelection == "" {
+		s.SiteTypeSelection = "container"
+	}
+
+	// Initialize compose input method if empty
+	if s.ComposeInputMethod == "" {
+		s.ComposeInputMethod = "file"
 	}
 
 	// Initialize ENV vars with one empty pair if needed
@@ -295,19 +305,71 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 
 	title := titleStyle.Render("Create New Site")
 
-	labels := []string{
-		"Name:",
-		"Node:",
-		"Docker Image:",
-		"Docker Username:",
-		"Docker Token:",
-		"SSL Email (for Let's Encrypt):",
-		"Config File Path (optional):",
+	isCompose := s.SiteTypeSelection == "compose"
+
+	// Build fields string
+	var fields string
+
+	// Site Type selector (special field index -1, rendered first)
+	siteTypeLabel := "  Deployment Type:"
+	if s.CurrentFieldIndex == -1 {
+		siteTypeLabel = "> Deployment Type:"
+	}
+	siteTypeValue := "Container"
+	if isCompose {
+		siteTypeValue = "Compose"
+	}
+	if s.CurrentFieldIndex == -1 {
+		siteTypeValue += "_"
+	}
+	siteTypeLine := siteTypeLabel + " " + siteTypeValue + "\n"
+	fields += zm.Mark("field:-1", siteTypeLine)
+
+	// Show site type dropdown when focused
+	if s.CurrentFieldIndex == -1 && s.DropdownOpen {
+		options := []string{"Container", "Compose"}
+		var dropdownStr string
+		for i, opt := range options {
+			prefix := "    "
+			if i == s.DropdownIndex {
+				prefix = "  > "
+			}
+			dropdownStr += prefix + opt + "\n"
+		}
+		fields += dropdownStr
+	}
+
+	// Define labels based on site type
+	var labels []string
+	if isCompose {
+		labels = []string{
+			"Name:",
+			"Node:",
+			"Compose File Path:",
+			"", // Hidden (docker username)
+			"", // Hidden (docker token)
+			"SSL Email (for Let's Encrypt):",
+			"", // Hidden (config file - not applicable for compose)
+		}
+	} else {
+		labels = []string{
+			"Name:",
+			"Node:",
+			"Docker Image:",
+			"Docker Username:",
+			"Docker Token:",
+			"SSL Email (for Let's Encrypt):",
+			"Config File Path (optional):",
+		}
 	}
 
 	// Render each field with zones
-	var fields string
 	for i, label := range labels {
+		// Skip hidden fields (empty labels)
+		if label == "" {
+			continue
+		}
+
 		value := s.FormFields[i]
 		displayValue := value
 
@@ -337,12 +399,21 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	domainMappingsSection := renderDomainMappingsSection(s, zm)
 	fields += "\n" + domainMappingsSection
 
-	// Render ENV vars section
-	envSection := renderEnvVarsSection(s, zm)
-	fields += "\n" + envSection
+	// Render ENV vars section (only for container deployments, compose has its own env handling)
+	if !isCompose {
+		envSection := renderEnvVarsSection(s, zm)
+		fields += "\n" + envSection
+	}
 
 	helpText := "\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel"
 	switch s.CurrentFieldIndex {
+	case -1:
+		// Site type selector
+		if s.DropdownOpen {
+			helpText = "\nUp/Down to select, Enter/Tab to confirm"
+		} else {
+			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
+		}
 	case 1:
 		// On Node dropdown field
 		if s.DropdownOpen {
@@ -350,10 +421,16 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		} else {
 			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
 		}
+	case 2:
+		if isCompose {
+			helpText = "\nEnter path to docker-compose.yml file"
+		} else {
+			helpText = "\nDocker image to deploy (e.g., nginx:latest, myrepo/myimage:v1)"
+		}
 	case 3:
-		helpText = "\nLeave black to skip Docker Auth (if image is public)"
+		helpText = "\nLeave blank to skip Docker Auth (if image is public)"
 	case 4:
-		helpText = "\nLeave black to skip Docker Auth (if image is public)"
+		helpText = "\nLeave blank to skip Docker Auth (if image is public)"
 	case 5:
 		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
 	case 6:
@@ -367,7 +444,13 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	}
 
 	help := helpStyle.Render(helpText)
-	note := helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings/ENV vars, - to remove")
+
+	var note string
+	if isCompose {
+		note = helpStyle.Render("Note: Compose deployment • Domain mappings apply to first service exposed port")
+	} else {
+		note = helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings/ENV vars, - to remove")
+	}
 
 	return title + "\n\n" + fields + "\n" + help + "\n" + note
 }
