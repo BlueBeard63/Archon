@@ -953,3 +953,40 @@ func renderSiteSidebar(s *state.AppState, site *models.Site) string {
 	content := domainInfo + "\n\n" + nodeInfo
 	return sidebarStyle.Render(title + "\n\n" + content)
 }
+
+// RenderSiteEnvVars renders the dedicated environment variables screen
+func RenderSiteEnvVars(s *state.AppState) string {
+	return RenderSiteEnvVarsWithZones(s, nil)
+}
+
+// RenderSiteEnvVarsWithZones renders the ENV vars screen with clickable zones
+func RenderSiteEnvVarsWithZones(s *state.AppState, zm *zone.Manager) string {
+	// Get site being edited
+	site := s.GetSiteByID(s.SelectedSiteID)
+	if site == nil {
+		return titleStyle.Render("Error: Site not found")
+	}
+
+	title := titleStyle.Render("🔧 Environment Variables: " + site.Name)
+
+	// Initialize ENV vars from site if not already loaded
+	if len(s.EnvVarPairs) == 0 {
+		// Load from site
+		for key, value := range site.EnvironmentVars {
+			s.EnvVarPairs = append(s.EnvVarPairs, state.EnvVarPair{Key: key, Value: value})
+		}
+		if len(s.EnvVarPairs) == 0 {
+			s.EnvVarPairs = []state.EnvVarPair{{Key: "", Value: ""}}
+		}
+		s.EnvVarFocusedPair = 0
+		s.EnvVarFocusedField = 0
+		s.CursorPosition = 0
+	}
+
+	// Render ENV table (reuse existing renderEnvVarsSection)
+	envSection := renderEnvVarsSection(s, zm)
+
+	help := helpStyle.Render("\nTab: switch field • Up/Down: navigate pairs • +/-: add/remove • Enter: save • Esc: back")
+
+	return title + "\n\n" + envSection + "\n" + help
+}
