@@ -27,6 +27,7 @@ const (
 	ScreenSitesList         Screen = "sites_list"
 	ScreenSiteCreate        Screen = "site_create"
 	ScreenSiteEdit          Screen = "site_edit"
+	ScreenSiteEnvVars       Screen = "site_env_vars"
 	ScreenDomainsList       Screen = "domains_list"
 	ScreenDomainCreate      Screen = "domain_create"
 	ScreenDomainEdit        Screen = "domain_edit"
@@ -81,6 +82,9 @@ type AppState struct {
 	DomainMappingPairs       []DomainMappingPair `json:"domain_mapping_pairs"`       // Domain mapping entries
 	DomainMappingFocusedPair int                 `json:"domain_mapping_focused_pair"` // Which mapping is currently focused
 	DomainMappingFocusedField int               `json:"domain_mapping_focused_field"` // 0=subdomain, 1=domain, 2=port
+
+	// Edit form initialization tracking
+	EditFormInitialized bool `json:"edit_form_initialized"` // Track if edit form data has been loaded
 
 	// Compose deployment state (for create/edit screens)
 	SiteTypeSelection  string `json:"site_type_selection"`  // "container" or "compose"
