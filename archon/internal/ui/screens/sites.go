@@ -407,12 +407,6 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	domainMappingsSection := renderDomainMappingsSection(s, zm)
 	fields += "\n" + domainMappingsSection
 
-	// Render ENV vars section (only for container deployments, compose has its own env handling)
-	if !isCompose {
-		envSection := renderEnvVarsSection(s, zm)
-		fields += "\n" + envSection
-	}
-
 	helpText := "\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel"
 	switch s.CurrentFieldIndex {
 	case -1:
@@ -443,9 +437,6 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
 	case 6:
 		helpText = "\nEnter full path to config file (will be loaded when site is created)"
-	case 100:
-		// Special index for ENV vars
-		helpText = "\nType key/value, Tab to switch between key/value, +/- buttons to add/remove pairs"
 	case 200:
 		// Special index for domain mappings
 		if isCompose {
@@ -461,7 +452,7 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	if isCompose {
 		note = helpStyle.Render("Note: Compose deployment • Port auto-detected from compose file (can be overridden)")
 	} else {
-		note = helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings/ENV vars, - to remove")
+		note = helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings, - to remove")
 	}
 
 	return title + "\n\n" + fields + "\n" + help + "\n" + note
@@ -629,10 +620,9 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	domainMappingsSection := renderDomainMappingsSection(s, zm)
 	fields += "\n" + domainMappingsSection
 
-	// Render ENV vars section (only for container deployments)
+	// Add ENV vars hint (only for container deployments)
 	if !isCompose {
-		envSection := renderEnvVarsSection(s, zm)
-		fields += "\n" + envSection
+		fields += "\n" + helpStyle.Render("Press 'v' to edit environment variables")
 	}
 
 	helpText := "\nTab/Shift+Tab to navigate, Enter to save, Esc to cancel"
@@ -658,9 +648,6 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
 	case 6:
 		helpText = "\nEnter full path to config file (will be loaded when site is saved)"
-	case 100:
-		// Special index for ENV vars
-		helpText = "\nType key/value, Tab to switch between key/value, +/- buttons to add/remove pairs"
 	case 200:
 		// Special index for domain mappings
 		helpText = "\nSelect subdomain/domain/port, Tab to switch fields, +/- buttons to add/remove mappings"
@@ -672,7 +659,7 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	if isCompose {
 		note = helpStyle.Render("Note: Compose site • To change compose content, delete and recreate the site")
 	} else {
-		note = helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings/ENV vars, - to remove")
+		note = helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings, - to remove • Press 'v' for ENV vars")
 	}
 
 	return title + "\n\n" + fields + "\n" + help + "\n" + note

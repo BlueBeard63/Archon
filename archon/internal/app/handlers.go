@@ -400,11 +400,6 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDomainMappingInput(msg)
 	}
 
-	// Handle ENV var input if focused on ENV section
-	if m.state.CurrentFieldIndex == 100 {
-		return m.handleEnvVarInput(msg)
-	}
-
 	// Normal field input handling
 	switch msg.Type {
 	case tea.KeyUp:
@@ -546,11 +541,6 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDomainMappingInput(msg)
 	}
 
-	// Handle ENV var input if focused on ENV section
-	if m.state.CurrentFieldIndex == 100 {
-		return m.handleEnvVarInput(msg)
-	}
-
 	// Normal field input handling
 	switch msg.Type {
 	case tea.KeyUp:
@@ -577,6 +567,15 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyRunes:
+		// Handle 'v' key to navigate to ENV vars screen (container sites only)
+		if string(msg.Runes) == "v" {
+			site := m.state.GetSiteByID(m.state.SelectedSiteID)
+			if site != nil && site.GetSiteType() != models.SiteTypeCompose {
+				m.state.EnvVarPairs = []state.EnvVarPair{} // Clear to trigger reload
+				m.state.NavigateTo(state.ScreenSiteEnvVars)
+				return m, nil
+			}
+		}
 		// Add character to current field
 		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
 			m.state.FormFields[m.state.CurrentFieldIndex] += string(msg.Runes)
@@ -709,17 +708,16 @@ func (m Model) handleDomainMappingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.state.DomainMappingFocusedField = 2
 			m.state.CursorPosition = len(m.state.DomainMappingPairs[pairIdx].Port)
 		} else {
-			// Move from port to next pair's subdomain, or to ENV section
+			// Move from port to next pair's subdomain, or wrap to first pair
 			if pairIdx < len(m.state.DomainMappingPairs)-1 {
 				m.state.DomainMappingFocusedPair++
 				m.state.DomainMappingFocusedField = 0
 				m.state.CursorPosition = len(m.state.DomainMappingPairs[m.state.DomainMappingFocusedPair].Subdomain)
 			} else {
-				// Done with domain mappings, move to ENV vars
-				m.state.CurrentFieldIndex = 100
-				m.state.EnvVarFocusedPair = 0
-				m.state.EnvVarFocusedField = 0
-				m.state.CursorPosition = len(m.state.EnvVarPairs[0].Key)
+				// Wrap to first pair (ENV vars now on separate screen)
+				m.state.DomainMappingFocusedPair = 0
+				m.state.DomainMappingFocusedField = 0
+				m.state.CursorPosition = len(m.state.DomainMappingPairs[0].Subdomain)
 			}
 		}
 		return m, nil

@@ -162,25 +162,32 @@ func (s *AppState) NavigateTo(screen Screen) {
 	// Push current screen to history
 	s.PreviousScreens = append(s.PreviousScreens, s.CurrentScreen)
 
+	// Reset edit form flag when leaving edit screen for non-ENV screen
+	if s.CurrentScreen == ScreenSiteEdit && screen != ScreenSiteEnvVars {
+		s.EditFormInitialized = false
+	}
+
 	// Switch to new screen
 	s.CurrentScreen = screen
 
-	// Reset form state when navigating
-	s.FormFields = []string{}
-	s.CurrentFieldIndex = 0
-	s.CursorPosition = 0
-	s.DropdownOpen = false
-	s.DropdownIndex = 0
-	s.EnvVarPairs = []EnvVarPair{}
-	s.EnvVarFocusedPair = 0
-	s.EnvVarFocusedField = 0
-	s.DomainMappingPairs = []DomainMappingPair{}
-	s.DomainMappingFocusedPair = 0
-	s.DomainMappingFocusedField = 0
-	s.SiteTypeSelection = "container" // Default to container
-	s.ComposeInputMethod = "file"     // Default to file input
-	s.ComposeFilePath = ""
-	s.ComposeContent = ""
+	// Reset form state when navigating (except when going to/from ENV screen)
+	if screen != ScreenSiteEnvVars {
+		s.FormFields = []string{}
+		s.CurrentFieldIndex = 0
+		s.CursorPosition = 0
+		s.DropdownOpen = false
+		s.DropdownIndex = 0
+		s.EnvVarPairs = []EnvVarPair{}
+		s.EnvVarFocusedPair = 0
+		s.EnvVarFocusedField = 0
+		s.DomainMappingPairs = []DomainMappingPair{}
+		s.DomainMappingFocusedPair = 0
+		s.DomainMappingFocusedField = 0
+		s.SiteTypeSelection = "container" // Default to container
+		s.ComposeInputMethod = "file"     // Default to file input
+		s.ComposeFilePath = ""
+		s.ComposeContent = ""
+	}
 }
 
 // NavigateBack goes back to the previous screen in history
@@ -188,8 +195,15 @@ func (s *AppState) NavigateBack() {
 	if len(s.PreviousScreens) > 0 {
 		// Pop from history stack
 		lastIndex := len(s.PreviousScreens) - 1
-		s.CurrentScreen = s.PreviousScreens[lastIndex]
+		targetScreen := s.PreviousScreens[lastIndex]
 		s.PreviousScreens = s.PreviousScreens[:lastIndex]
+
+		// Reset edit form flag when leaving edit screen for non-ENV screen
+		if s.CurrentScreen == ScreenSiteEdit && targetScreen != ScreenSiteEnvVars {
+			s.EditFormInitialized = false
+		}
+
+		s.CurrentScreen = targetScreen
 	}
 }
 
