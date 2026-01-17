@@ -468,11 +468,19 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		return titleStyle.Render("Error: Site not found")
 	}
 
-	// Always initialize form fields with current site data (7 fields: name, node, docker image, docker username, docker token, ssl email, config file)
+	// Initialize site type from the existing site
+	isCompose := site.GetSiteType() == models.SiteTypeCompose
+	s.SiteTypeSelection = string(site.GetSiteType())
+
+	// Always initialize form fields with current site data (7 fields: name, node, docker image/compose path, docker username, docker token, ssl email, config file)
 	// This ensures the form is always showing the correct data, even if it was previously used
 	s.FormFields = make([]string, 7)
 	s.FormFields[0] = site.Name
-	s.FormFields[2] = site.DockerImage
+	if isCompose {
+		s.FormFields[2] = "(Compose content loaded)" // Placeholder for compose sites
+	} else {
+		s.FormFields[2] = site.DockerImage
+	}
 	s.FormFields[3] = site.DockerUsername
 	s.FormFields[4] = site.DockerToken
 	s.FormFields[5] = site.SSLEmail
@@ -523,9 +531,9 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		s.DomainMappingPairs = []state.DomainMappingPair{{Subdomain: "", DomainName: "", DomainID: "", Port: "8080"}}
 	}
 
-	// Always initialize ENV vars from current site data
+	// Always initialize ENV vars from current site data (only for container sites)
 	s.EnvVarPairs = []state.EnvVarPair{}
-	if len(site.EnvironmentVars) > 0 {
+	if !isCompose && len(site.EnvironmentVars) > 0 {
 		// Convert map to pairs
 		for key, value := range site.EnvironmentVars {
 			s.EnvVarPairs = append(s.EnvVarPairs, state.EnvVarPair{
@@ -533,26 +541,56 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 				Value: value,
 			})
 		}
-	} else {
+	}
+	if len(s.EnvVarPairs) == 0 {
 		// Start with one empty pair
 		s.EnvVarPairs = []state.EnvVarPair{{Key: "", Value: ""}}
 	}
 
 	title := titleStyle.Render("Edit Site: " + site.Name)
 
-	labels := []string{
-		"Name:",
-		"Node:",
-		"Docker Image:",
-		"Docker Username:",
-		"Docker Token:",
-		"SSL Email (for Let's Encrypt):",
-		"Config File Path (optional):",
+	// Build fields string
+	var fields string
+
+	// Site Type indicator (read-only for edit mode)
+	siteTypeValue := "Container"
+	if isCompose {
+		siteTypeValue = "Compose"
+	}
+	siteTypeLine := "  Deployment Type: " + siteTypeValue + " (read-only)\n"
+	fields += siteTypeLine
+
+	// Define labels based on site type
+	var labels []string
+	if isCompose {
+		labels = []string{
+			"Name:",
+			"Node:",
+			"Compose Content:",
+			"", // Hidden (docker username)
+			"", // Hidden (docker token)
+			"SSL Email (for Let's Encrypt):",
+			"", // Hidden (config file)
+		}
+	} else {
+		labels = []string{
+			"Name:",
+			"Node:",
+			"Docker Image:",
+			"Docker Username:",
+			"Docker Token:",
+			"SSL Email (for Let's Encrypt):",
+			"Config File Path (optional):",
+		}
 	}
 
 	// Render each field with zones
-	var fields string
 	for i, label := range labels {
+		// Skip hidden fields (empty labels)
+		if label == "" {
+			continue
+		}
+
 		value := s.FormFields[i]
 		displayValue := value
 
@@ -582,11 +620,13 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	domainMappingsSection := renderDomainMappingsSection(s, zm)
 	fields += "\n" + domainMappingsSection
 
-	// Render ENV vars section
-	envSection := renderEnvVarsSection(s, zm)
-	fields += "\n" + envSection
+	// Render ENV vars section (only for container deployments)
+	if !isCompose {
+		envSection := renderEnvVarsSection(s, zm)
+		fields += "\n" + envSection
+	}
 
-	helpText := "\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel"
+	helpText := "\nTab/Shift+Tab to navigate, Enter to save, Esc to cancel"
 	switch s.CurrentFieldIndex {
 	case 1:
 		// On Node dropdown field
@@ -595,14 +635,20 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		} else {
 			helpText = "\nPress Enter or Down to open dropdown, Tab to skip"
 		}
+	case 2:
+		if isCompose {
+			helpText = "\nCompose content is read-only (re-deploy to change)"
+		} else {
+			helpText = "\nDocker image to deploy (e.g., nginx:latest, myrepo/myimage:v1)"
+		}
 	case 3:
-		helpText = "\nLeave black to skip Docker Auth (if image is public)"
+		helpText = "\nLeave blank to skip Docker Auth (if image is public)"
 	case 4:
-		helpText = "\nLeave black to skip Docker Auth (if image is public)"
+		helpText = "\nLeave blank to skip Docker Auth (if image is public)"
 	case 5:
 		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
 	case 6:
-		helpText = "\nEnter full path to config file (will be loaded when site is created)"
+		helpText = "\nEnter full path to config file (will be loaded when site is saved)"
 	case 100:
 		// Special index for ENV vars
 		helpText = "\nType key/value, Tab to switch between key/value, +/- buttons to add/remove pairs"
@@ -612,7 +658,13 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	}
 
 	help := helpStyle.Render(helpText)
-	note := helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings/ENV vars, - to remove")
+
+	var note string
+	if isCompose {
+		note = helpStyle.Render("Note: Compose site • To change compose content, delete and recreate the site")
+	} else {
+		note = helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings/ENV vars, - to remove")
+	}
 
 	return title + "\n\n" + fields + "\n" + help + "\n" + note
 }
