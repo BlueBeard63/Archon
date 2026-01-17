@@ -1855,7 +1855,23 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 		composeContent = content
 		detectedPorts = ports
 	}
-	_ = detectedPorts // Will be used in Task 5
+
+	// Auto-populate domain mapping port from detected compose ports
+	if isCompose && len(detectedPorts) > 0 {
+		firstPort := compose.GetFirstPort(detectedPorts)
+		if firstPort > 0 && len(m.state.DomainMappingPairs) > 0 {
+			// Only update if the port is still the default
+			if m.state.DomainMappingPairs[0].Port == "8080" || m.state.DomainMappingPairs[0].Port == "" {
+				m.state.DomainMappingPairs[0].Port = fmt.Sprintf("%d", firstPort)
+			}
+		}
+		// Notify user about detected ports
+		if len(detectedPorts) == 1 {
+			m.state.AddNotification(fmt.Sprintf("Auto-detected port %d from compose file", firstPort), "info")
+		} else {
+			m.state.AddNotification(fmt.Sprintf("Auto-detected %d ports from compose file, using port %d", len(detectedPorts), firstPort), "info")
+		}
+	}
 
 	// Find node by name (index 1)
 	var nodeID uuid.UUID
