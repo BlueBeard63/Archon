@@ -226,7 +226,9 @@ func (m Model) handleSitesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Edit selected site
 		if len(m.state.Sites) > 0 && m.state.SitesListIndex >= 0 && m.state.SitesListIndex < len(m.state.Sites) {
 			site := m.state.Sites[m.state.SitesListIndex]
-			m.state.AddNotification("Edit site: "+site.Name+" (not yet implemented)", "info")
+			m.state.SelectedSiteID = site.ID
+			m.state.CurrentFieldIndex = 0 // Reset to first field
+			m.state.NavigateTo(state.ScreenSiteEdit)
 		}
 		return m, nil
 
@@ -853,6 +855,56 @@ func (m Model) handleEnvVarInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				// Done with ENV vars, move back to regular fields
 				m.state.CurrentFieldIndex = 0
+			}
+		}
+		return m, nil
+
+	case tea.KeyShiftTab:
+		// Move backwards: value to key, or to previous pair's value
+		if m.state.EnvVarFocusedField == 1 {
+			// Move from value to key
+			m.state.EnvVarFocusedField = 0
+			m.state.CursorPosition = len(m.state.EnvVarPairs[pairIdx].Key)
+		} else {
+			// Move from key to previous pair's value, or back to domain mappings
+			if pairIdx > 0 {
+				m.state.EnvVarFocusedPair--
+				m.state.EnvVarFocusedField = 1
+				m.state.CursorPosition = len(m.state.EnvVarPairs[m.state.EnvVarFocusedPair].Value)
+			} else {
+				// Back to domain mappings section
+				m.state.CurrentFieldIndex = 200
+				if len(m.state.DomainMappingPairs) > 0 {
+					m.state.DomainMappingFocusedPair = len(m.state.DomainMappingPairs) - 1
+					m.state.DomainMappingFocusedField = 2 // Port field
+					m.state.CursorPosition = len(m.state.DomainMappingPairs[m.state.DomainMappingFocusedPair].Port)
+				}
+			}
+		}
+		return m, nil
+
+	case tea.KeyUp:
+		// Move to previous ENV pair
+		if pairIdx > 0 {
+			m.state.EnvVarFocusedPair--
+			// Keep same field (key or value)
+			if m.state.EnvVarFocusedField == 0 {
+				m.state.CursorPosition = len(m.state.EnvVarPairs[m.state.EnvVarFocusedPair].Key)
+			} else {
+				m.state.CursorPosition = len(m.state.EnvVarPairs[m.state.EnvVarFocusedPair].Value)
+			}
+		}
+		return m, nil
+
+	case tea.KeyDown:
+		// Move to next ENV pair
+		if pairIdx < len(m.state.EnvVarPairs)-1 {
+			m.state.EnvVarFocusedPair++
+			// Keep same field (key or value)
+			if m.state.EnvVarFocusedField == 0 {
+				m.state.CursorPosition = len(m.state.EnvVarPairs[m.state.EnvVarFocusedPair].Key)
+			} else {
+				m.state.CursorPosition = len(m.state.EnvVarPairs[m.state.EnvVarFocusedPair].Value)
 			}
 		}
 		return m, nil
