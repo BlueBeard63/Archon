@@ -92,7 +92,7 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 
 			rows = append(rows, table.Row{
 				truncate(site.Name, 18),
-				truncate(typeDisplay, 9),
+				truncate(typeDisplay, 12),
 				truncate(domainDisplay, 30),
 				truncate(nodeName, 18),
 				truncate(portDisplay, 8),
@@ -104,7 +104,7 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		if s.SitesTable == nil {
 			columns := []table.Column{
 				{Title: "Name", Width: 18},
-				{Title: "Type", Width: 9},
+				{Title: "Type", Width: 12},
 				{Title: "Domain", Width: 30},
 				{Title: "Node", Width: 18},
 				{Title: "Port", Width: 8},
@@ -512,8 +512,9 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		s.FormFields[6] = ""
 	}
 
-	// Only reset field index if it's out of bounds
-	if s.CurrentFieldIndex < 0 || s.CurrentFieldIndex > 200 {
+	// Reset field index to first form field when entering edit screen
+	// This ensures we start at Name field, not stuck in ENV (100) or domain (200) sections
+	if s.CurrentFieldIndex < 0 || s.CurrentFieldIndex >= len(s.FormFields) {
 		s.CurrentFieldIndex = 0
 	}
 
