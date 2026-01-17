@@ -2,33 +2,42 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/BlueBeard63/archon-node/internal/compose"
 	"github.com/BlueBeard63/archon-node/internal/docker"
 	"github.com/BlueBeard63/archon-node/internal/models"
+	"github.com/BlueBeard63/archon-node/internal/pipeline"
+	"github.com/BlueBeard63/archon-node/internal/pipeline/stages"
 	"github.com/BlueBeard63/archon-node/internal/proxy"
 	"github.com/BlueBeard63/archon-node/internal/ssl"
 )
 
 type Handlers struct {
-	dockerClient *docker.Client
-	proxyManager proxy.ProxyManager
-	sslManager   *ssl.Manager
-	dataDir      string
+	dockerClient    *docker.Client
+	composeExecutor *compose.Executor
+	proxyManager    proxy.ProxyManager
+	sslManager      *ssl.Manager
+	dataDir         string
 }
 
-func NewHandlers(dockerClient *docker.Client, proxyManager proxy.ProxyManager, sslManager *ssl.Manager, dataDir string) *Handlers {
+func NewHandlers(
+	dockerClient *docker.Client,
+	composeExecutor *compose.Executor,
+	proxyManager proxy.ProxyManager,
+	sslManager *ssl.Manager,
+	dataDir string,
+) *Handlers {
 	return &Handlers{
-		dockerClient: dockerClient,
-		proxyManager: proxyManager,
-		sslManager:   sslManager,
-		dataDir:      dataDir,
+		dockerClient:    dockerClient,
+		composeExecutor: composeExecutor,
+		proxyManager:    proxyManager,
+		sslManager:      sslManager,
+		dataDir:         dataDir,
 	}
 }
 
@@ -55,7 +64,7 @@ func (h *Handlers) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, response)
 }
 
-// HandleDeploySite deploys a new site
+// HandleDeploySite deploys a new site using the deployment pipeline
 func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -74,108 +83,36 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 	log.Printf("%s", string(reqJSON))
 	log.Printf("========================================")
 
-	// Validate request
-	if req.Name == "" || len(req.DomainMappings) == 0 || req.Docker.Image == "" {
-		respondError(w, http.StatusBadRequest, "Missing required fields")
+	// Create deployment pipeline
+	deps := &stages.Dependencies{
+		DockerClient:    h.dockerClient,
+		ComposeExecutor: h.composeExecutor,
+		ProxyManager:    h.proxyManager,
+		SSLManager:      h.sslManager,
+	}
+	deployPipeline := stages.NewDeploymentPipeline(deps)
+
+	// Create deployment state
+	state := pipeline.NewDeploymentState(&req, h.dataDir)
+
+	// Execute pipeline
+	if err := deployPipeline.Execute(ctx, state); err != nil {
+		log.Printf("[ERROR] Deployment failed: %v", err)
+
+		// Determine appropriate status code
+		statusCode := http.StatusInternalServerError
+		if state.CurrentStage == "validation" {
+			statusCode = http.StatusBadRequest
+		} else if state.CurrentStage == "port-check" {
+			statusCode = http.StatusConflict
+		}
+
+		respondError(w, statusCode, err.Error())
 		return
 	}
 
-	// Extract host ports and check for conflicts
-	hostPorts := make([]int, 0, len(req.DomainMappings))
-	for _, mapping := range req.DomainMappings {
-		hostPort := mapping.Port
-		if mapping.HostPort > 0 {
-			hostPort = mapping.HostPort
-		}
-		hostPorts = append(hostPorts, hostPort)
-	}
-
-	// Check for port conflicts
-	if err := h.dockerClient.CheckPortConflicts(ctx, hostPorts, req.ID); err != nil {
-		log.Printf("[ERROR] Port conflict detected: %v", err)
-		respondError(w, http.StatusConflict, fmt.Sprintf("Port conflict: %v", err))
-		return
-	}
-
-	// Ensure SSL certificates if needed
-	var certPath, keyPath string
-	var err error
-	if req.SSLEnabled {
-		// Get all domains to be configured
-		domainMappings := getDomainMappingsForHandler(&req)
-		domains := make([]string, 0, len(domainMappings))
-		for _, mapping := range domainMappings {
-			domains = append(domains, mapping.Domain)
-		}
-
-		log.Printf("Setting up SSL certificate for %d domains: %v (email: %s)", len(domains), domains, req.SSLEmail)
-		log.Printf("[DEBUG] ProxyManager type: %T", h.proxyManager)
-
-		// For Let's Encrypt, configure proxy first to serve validation challenges
-		log.Printf("Configuring reverse proxy for Let's Encrypt validation")
-		if err := h.proxyManager.ConfigureForValidation(ctx, &req); err != nil {
-			log.Printf("[ERROR] Failed to configure proxy for validation: %v", err)
-			respondError(w, http.StatusInternalServerError, "Failed to configure proxy for validation: "+err.Error())
-			return
-		}
-
-		// Reload proxy with validation configuration
-		log.Printf("Reloading reverse proxy with validation configuration")
-		if err := h.proxyManager.Reload(ctx); err != nil {
-			log.Printf("[ERROR] Failed to reload proxy: %v", err)
-			respondError(w, http.StatusInternalServerError, "Failed to reload proxy: "+err.Error())
-			return
-		}
-
-		// Wait for DNS propagation for all domains before attempting SSL certificate
-		for _, domain := range domains {
-			log.Printf("Waiting for DNS propagation for: %s", domain)
-			if err := waitForDNSPropagation(domain, 60*time.Second); err != nil {
-				log.Printf("[ERROR] DNS propagation timeout for %s: %v", domain, err)
-				respondError(w, http.StatusInternalServerError, "DNS propagation timeout for "+domain+": "+err.Error())
-				return
-			}
-			log.Printf("DNS propagation verified for: %s", domain)
-		}
-
-		// Request certificate for all domains (uses SAN if multiple domains)
-		_, _, err := h.sslManager.EnsureCertificateMulti(ctx, req.ID, domains, req.SSLCert, req.SSLKey, req.SSLEmail)
-		if err != nil {
-			log.Printf("[ERROR] Failed to setup SSL: %v", err)
-			respondError(w, http.StatusInternalServerError, "Failed to setup SSL: "+err.Error())
-			return
-		}
-		log.Printf("SSL certificate obtained successfully for %d domains", len(domains))
-	}
-
-	// Deploy container
-	log.Printf("Deploying Docker container: image=%s, domains=%d", req.Docker.Image, len(req.DomainMappings))
-	deployResp, err := h.dockerClient.DeploySite(ctx, &req, h.dataDir)
-	if err != nil {
-		log.Printf("[ERROR] Failed to deploy site: %v", err)
-		respondError(w, http.StatusInternalServerError, "Failed to deploy site: "+err.Error())
-		return
-	}
-	log.Printf("Docker container deployed successfully: containerID=%s", deployResp.ContainerID)
-
-	// Configure reverse proxy
-	log.Printf("Configuring reverse proxy for %d domains", len(req.DomainMappings))
-	if err := h.proxyManager.Configure(ctx, &req, certPath, keyPath); err != nil {
-		log.Printf("[ERROR] Failed to configure proxy: %v", err)
-		respondError(w, http.StatusInternalServerError, "Failed to configure proxy: "+err.Error())
-		return
-	}
-
-	// Reload proxy
-	log.Printf("Reloading reverse proxy")
-	if err := h.proxyManager.Reload(ctx); err != nil {
-		log.Printf("[ERROR] Failed to reload proxy: %v", err)
-		respondError(w, http.StatusInternalServerError, "Failed to reload proxy: "+err.Error())
-		return
-	}
 	log.Printf("Site deployment completed successfully")
-
-	respondJSON(w, http.StatusOK, deployResp)
+	respondJSON(w, http.StatusOK, state.Response)
 }
 
 // HandleGetSiteStatus returns the status of a site
@@ -190,8 +127,20 @@ func (h *Handlers) HandleGetSiteStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get status
-	status, err := h.dockerClient.GetSiteStatus(ctx, siteID)
+	// Get optional site name for compose (from query param)
+	siteName := r.URL.Query().Get("name")
+	siteType := r.URL.Query().Get("type")
+
+	var status *models.SiteStatusResponse
+
+	if siteType == "compose" && siteName != "" {
+		// Use compose executor for compose sites
+		status, err = h.composeExecutor.GetStatus(ctx, siteID, siteName)
+	} else {
+		// Default to docker client for container sites
+		status, err = h.dockerClient.GetSiteStatus(ctx, siteID)
+	}
+
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to get site status: "+err.Error())
 		return
@@ -212,10 +161,22 @@ func (h *Handlers) HandleStopSite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Stop site
-	if err := h.dockerClient.StopSite(ctx, siteID); err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to stop site: "+err.Error())
-		return
+	// Get optional parameters for compose
+	siteName := r.URL.Query().Get("name")
+	siteType := r.URL.Query().Get("type")
+
+	if siteType == "compose" && siteName != "" {
+		// Stop compose services
+		if err := h.composeExecutor.StopSite(ctx, siteID, siteName); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to stop compose site: "+err.Error())
+			return
+		}
+	} else {
+		// Stop container
+		if err := h.dockerClient.StopSite(ctx, siteID); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to stop site: "+err.Error())
+			return
+		}
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Site stopped successfully"})
@@ -260,10 +221,21 @@ func (h *Handlers) HandleDeleteSite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete container
-	if err := h.dockerClient.DeleteSite(ctx, siteID); err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to delete site: "+err.Error())
-		return
+	// Get optional parameters for compose
+	siteName := r.URL.Query().Get("name")
+	siteType := r.URL.Query().Get("type")
+
+	// Delete container or compose stack
+	if siteType == "compose" && siteName != "" {
+		if err := h.composeExecutor.DeleteSite(ctx, siteID, siteName); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to delete compose site: "+err.Error())
+			return
+		}
+	} else {
+		if err := h.dockerClient.DeleteSite(ctx, siteID); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to delete site: "+err.Error())
+			return
+		}
 	}
 
 	// Remove proxy configuration
@@ -281,7 +253,7 @@ func (h *Handlers) HandleDeleteSite(w http.ResponseWriter, r *http.Request) {
 	// Remove SSL certificates
 	if err := h.sslManager.RemoveCertificate(siteID); err != nil {
 		// Log but don't fail
-		// fmt.Printf("Warning: failed to remove SSL certificate: %v\n", err)
+		log.Printf("Warning: failed to remove SSL certificate: %v", err)
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Site deleted successfully"})
