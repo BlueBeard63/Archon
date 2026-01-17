@@ -484,80 +484,76 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	isCompose := site.GetSiteType() == models.SiteTypeCompose
 	s.SiteTypeSelection = string(site.GetSiteType())
 
-	// Always initialize form fields with current site data (7 fields: name, node, docker image/compose path, docker username, docker token, ssl email, config file)
-	// This ensures the form is always showing the correct data, even if it was previously used
-	s.FormFields = make([]string, 7)
-	s.FormFields[0] = site.Name
-	if isCompose {
-		s.FormFields[2] = "(Compose content loaded)" // Placeholder for compose sites
-	} else {
-		s.FormFields[2] = site.DockerImage
-	}
-	s.FormFields[3] = site.DockerUsername
-	s.FormFields[4] = site.DockerToken
-	s.FormFields[5] = site.SSLEmail
-
-	// Find node name
-	for _, n := range s.Nodes {
-		if n.ID == site.NodeID {
-			s.FormFields[1] = n.Name
-			break
+	// Only initialize form data on first entry to edit screen
+	// This prevents typed input from being overwritten on every render
+	if !s.EditFormInitialized {
+		s.FormFields = make([]string, 7)
+		s.FormFields[0] = site.Name
+		if isCompose {
+			s.FormFields[2] = "(Compose content loaded)" // Placeholder for compose sites
+		} else {
+			s.FormFields[2] = site.DockerImage
 		}
-	}
+		s.FormFields[3] = site.DockerUsername
+		s.FormFields[4] = site.DockerToken
+		s.FormFields[5] = site.SSLEmail
 
-	// Config file path (leave blank or show first config file name)
-	if len(site.ConfigFiles) > 0 {
-		s.FormFields[6] = site.ConfigFiles[0].Name
-	} else {
-		s.FormFields[6] = ""
-	}
-
-	// Reset field index to first form field when entering edit screen
-	// This ensures we start at Name field, not stuck in ENV (100) or domain (200) sections
-	if s.CurrentFieldIndex < 0 || s.CurrentFieldIndex >= len(s.FormFields) {
-		s.CurrentFieldIndex = 0
-	}
-
-	// Always initialize domain mapping pairs from current site data
-	s.DomainMappingPairs = []state.DomainMappingPair{}
-	mappings := site.GetDomainMappings()
-	if len(mappings) > 0 {
-		// Convert existing mappings to UI pairs
-		for _, mapping := range mappings {
-			// Find domain name
-			domainName := ""
-			for _, d := range s.Domains {
-				if d.ID == mapping.DomainID {
-					domainName = d.Name
-					break
-				}
+		// Find node name
+		for _, n := range s.Nodes {
+			if n.ID == site.NodeID {
+				s.FormFields[1] = n.Name
+				break
 			}
-			s.DomainMappingPairs = append(s.DomainMappingPairs, state.DomainMappingPair{
-				Subdomain:  mapping.Subdomain,
-				DomainName: domainName,
-				DomainID:   mapping.DomainID.String(),
-				Port:       models.FormatPortMapping(mapping.Port, mapping.HostPort),
-			})
 		}
-	} else {
-		// Start with one empty pair
-		s.DomainMappingPairs = []state.DomainMappingPair{{Subdomain: "", DomainName: "", DomainID: "", Port: "8080"}}
-	}
 
-	// Always initialize ENV vars from current site data (only for container sites)
-	s.EnvVarPairs = []state.EnvVarPair{}
-	if !isCompose && len(site.EnvironmentVars) > 0 {
-		// Convert map to pairs
-		for key, value := range site.EnvironmentVars {
-			s.EnvVarPairs = append(s.EnvVarPairs, state.EnvVarPair{
-				Key:   key,
-				Value: value,
-			})
+		// Config file path (leave blank or show first config file name)
+		if len(site.ConfigFiles) > 0 {
+			s.FormFields[6] = site.ConfigFiles[0].Name
+		} else {
+			s.FormFields[6] = ""
 		}
-	}
-	if len(s.EnvVarPairs) == 0 {
-		// Start with one empty pair
-		s.EnvVarPairs = []state.EnvVarPair{{Key: "", Value: ""}}
+
+		// Initialize domain mapping pairs from current site data
+		s.DomainMappingPairs = []state.DomainMappingPair{}
+		mappings := site.GetDomainMappings()
+		if len(mappings) > 0 {
+			for _, mapping := range mappings {
+				domainName := ""
+				for _, d := range s.Domains {
+					if d.ID == mapping.DomainID {
+						domainName = d.Name
+						break
+					}
+				}
+				s.DomainMappingPairs = append(s.DomainMappingPairs, state.DomainMappingPair{
+					Subdomain:  mapping.Subdomain,
+					DomainName: domainName,
+					DomainID:   mapping.DomainID.String(),
+					Port:       models.FormatPortMapping(mapping.Port, mapping.HostPort),
+				})
+			}
+		} else {
+			s.DomainMappingPairs = []state.DomainMappingPair{{Subdomain: "", DomainName: "", DomainID: "", Port: "8080"}}
+		}
+
+		// Initialize ENV vars from current site data (only for container sites)
+		s.EnvVarPairs = []state.EnvVarPair{}
+		if !isCompose && len(site.EnvironmentVars) > 0 {
+			for key, value := range site.EnvironmentVars {
+				s.EnvVarPairs = append(s.EnvVarPairs, state.EnvVarPair{
+					Key:   key,
+					Value: value,
+				})
+			}
+		}
+		if len(s.EnvVarPairs) == 0 {
+			s.EnvVarPairs = []state.EnvVarPair{{Key: "", Value: ""}}
+		}
+
+		// Reset field index to first form field
+		s.CurrentFieldIndex = 0
+
+		s.EditFormInitialized = true
 	}
 
 	title := titleStyle.Render("Edit Site: " + site.Name)
