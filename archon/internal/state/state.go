@@ -82,6 +82,12 @@ type AppState struct {
 	DomainMappingFocusedPair int                 `json:"domain_mapping_focused_pair"` // Which mapping is currently focused
 	DomainMappingFocusedField int               `json:"domain_mapping_focused_field"` // 0=subdomain, 1=domain, 2=port
 
+	// Compose deployment state (for create/edit screens)
+	SiteTypeSelection  string `json:"site_type_selection"`  // "container" or "compose"
+	ComposeInputMethod string `json:"compose_input_method"` // "file" or "paste"
+	ComposeFilePath    string `json:"compose_file_path"`    // Path to compose file (when input method is "file")
+	ComposeContent     string `json:"compose_content"`      // Pasted compose YAML content (when input method is "paste")
+
 	// Async operations tracking
 	PendingOperations []AsyncOperation `json:"pending_operations"`
 	Notifications     []Notification   `json:"notifications"`
@@ -167,6 +173,10 @@ func (s *AppState) NavigateTo(screen Screen) {
 	s.DomainMappingPairs = []DomainMappingPair{}
 	s.DomainMappingFocusedPair = 0
 	s.DomainMappingFocusedField = 0
+	s.SiteTypeSelection = "container" // Default to container
+	s.ComposeInputMethod = "file"     // Default to file input
+	s.ComposeFilePath = ""
+	s.ComposeContent = ""
 }
 
 // NavigateBack goes back to the previous screen in history
