@@ -14,7 +14,7 @@ type NodeClient interface {
 	DeleteSite(endpoint, apiKey string, siteID uuid.UUID, domain, siteName string, siteType models.SiteType) error
 	GetSiteStatus(endpoint, apiKey string, siteID uuid.UUID, siteName string, siteType models.SiteType) (*models.SiteStatus, error)
 	StopSite(endpoint, apiKey string, siteID uuid.UUID, siteName string, siteType models.SiteType) error
-	RestartSite(endpoint, apiKey string, siteID uuid.UUID) error
+	RestartSite(endpoint, apiKey string, siteID uuid.UUID, pullLatest bool, dockerUsername, dockerToken string) error
 
 	// Node health and monitoring
 	HealthCheck(endpoint, apiKey string) (*HealthResponse, error)
@@ -79,3 +79,4 @@ type ErrorResponse struct {
 	Code    string `json:"code"`
 	Details string `json:"details,omitempty"`
 }
+

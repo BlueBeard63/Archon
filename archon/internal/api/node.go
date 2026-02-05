@@ -344,10 +344,41 @@ func (c *HTTPNodeClient) StopSite(endpoint, apiKey string, siteID uuid.UUID, sit
 	return nil
 }
 
-// RestartSite restarts a site container
-func (c *HTTPNodeClient) RestartSite(endpoint, apiKey string, siteID uuid.UUID) error {
-	url := fmt.Sprintf("%s/api/v1/sites/%s/restart", endpoint, siteID.String())
-	resp, err := c.doRequest("POST", url, apiKey, nil)
+// RestartSite restarts a site container, optionally pulling the latest image first
+// If pullLatest is true, the node will attempt to pull the latest image before restarting
+// Credentials are only needed for private registries when pulling the latest image
+func (c *HTTPNodeClient) RestartSite(endpoint, apiKey string, siteID uuid.UUID, pullLatest bool, dockerUsername, dockerToken string) error {
+	reqURL := fmt.Sprintf("%s/api/v1/sites/%s/restart", endpoint, siteID.String())
+
+	// Build request body if we need to pull latest
+	var body interface{}
+	if pullLatest {
+		reqBody := map[string]interface{}{
+			"pull_latest": true,
+		}
+
+		// Encrypt credentials if we have an API key and credentials
+		if apiKey != "" && (dockerUsername != "" || dockerToken != "") {
+			encUsername, err := crypto.Encrypt(dockerUsername, apiKey)
+			if err != nil {
+				return fmt.Errorf("failed to encrypt username: %w", err)
+			}
+			encToken, err := crypto.Encrypt(dockerToken, apiKey)
+			if err != nil {
+				return fmt.Errorf("failed to encrypt token: %w", err)
+			}
+			reqBody["docker_username"] = encUsername
+			reqBody["docker_token"] = encToken
+			reqBody["credentials_encrypted"] = true
+		} else if dockerUsername != "" || dockerToken != "" {
+			// Include unencrypted credentials if no API key
+			reqBody["docker_username"] = dockerUsername
+			reqBody["docker_token"] = dockerToken
+		}
+		body = reqBody
+	}
+
+	resp, err := c.doRequest("POST", reqURL, apiKey, body)
 	if err != nil {
 		return err
 	}

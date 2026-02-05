@@ -321,6 +321,66 @@ func (c *Client) RestartSite(ctx context.Context, siteID uuid.UUID) error {
 	return nil
 }
 
+// RestartSiteWithPull pulls the latest image and then restarts the container.
+// If the image pull fails, it logs a warning and continues with the restart using the existing image.
+// This allows the container to restart even if the registry is unreachable or credentials are invalid.
+func (c *Client) RestartSiteWithPull(ctx context.Context, siteID uuid.UUID, username, password string) error {
+	// Get container status
+	status, err := c.GetSiteStatus(ctx, siteID)
+	if err != nil {
+		return err
+	}
+
+	if status.ContainerID == "" {
+		return fmt.Errorf("container not found")
+	}
+
+	// Inspect container to get the image name
+	containerInfo, err := c.cli.ContainerInspect(ctx, status.ContainerID)
+	if err != nil {
+		return fmt.Errorf("failed to inspect container: %w", err)
+	}
+
+	imageName := containerInfo.Config.Image
+
+	// Build auth string for private registries
+	authStr := ""
+	if username != "" && password != "" {
+		authConfig := map[string]string{
+			"username": username,
+			"password": password,
+		}
+		encodedJSON, err := json.Marshal(authConfig)
+		if err != nil {
+			log.Printf("[WARNING] Failed to encode credentials for image pull: %v", err)
+		} else {
+			authStr = base64.StdEncoding.EncodeToString(encodedJSON)
+		}
+	}
+
+	// Attempt to pull the latest image
+	reader, err := c.cli.ImagePull(ctx, imageName, image.PullOptions{
+		RegistryAuth: authStr,
+	})
+	if err != nil {
+		// Log warning but continue with restart using existing image
+		log.Printf("[WARNING] Failed to pull latest image %s: %v. Continuing with existing image.", imageName, err)
+	} else {
+		// Consume pull output
+		io.Copy(io.Discard, reader)
+		reader.Close()
+		log.Printf("[INFO] Successfully pulled latest image: %s", imageName)
+	}
+
+	// Restart the container
+	timeout := 10
+	if err := c.cli.ContainerRestart(ctx, status.ContainerID, container.StopOptions{Timeout: &timeout}); err != nil {
+		return fmt.Errorf("failed to restart container: %w", err)
+	}
+
+	return nil
+}
+
 // DeleteSite stops and removes a site
 func (c *Client) DeleteSite(ctx context.Context, siteID uuid.UUID) error {
 	status, err := c.GetSiteStatus(ctx, siteID)

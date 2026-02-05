@@ -37,6 +37,7 @@ const (
 	ScreenNodeEdit          Screen = "node_edit"
 	ScreenNodeConfig        Screen = "node_config"
 	ScreenNodeConfigSave    Screen = "node_config_save"
+	ScreenNodeQuickConfig   Screen = "node_quick_config"
 	ScreenSettings          Screen = "settings"
 	ScreenHelp              Screen = "help"
 	ScreenSiteDeleteConfirm Screen = "site_delete_confirm"
@@ -93,6 +94,12 @@ type AppState struct {
 	DeletionTargetID       uuid.UUID `json:"deletion_target_id"`       // ID of item pending deletion
 	DeletionTargetName     string    `json:"deletion_target_name"`     // Name of item pending deletion (for comparison)
 	DeletionTargetType     string    `json:"deletion_target_type"`     // Type of item: "site", "domain", "node"
+
+	// Quick config state (dpaste.org based)
+	QuickConfigURL           string    `json:"quick_config_url"`             // dpaste URL for sharing
+	QuickConfigExpiresAt     string    `json:"quick_config_expires_at"`      // Expiration time
+	QuickConfigNodeID        uuid.UUID `json:"quick_config_node_id"`         // Node being configured
+	QuickConfigHealthConfirmed bool    `json:"quick_config_health_confirmed"` // Whether health check confirmed
 
 	// Compose deployment state (for create/edit screens)
 	SiteTypeSelection  string `json:"site_type_selection"`  // "container" or "compose"

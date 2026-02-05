@@ -230,7 +230,7 @@ func (h *Handlers) HandleStopSite(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Site stopped successfully"})
 }
 
-// HandleRestartSite restarts a site
+// HandleRestartSite restarts a site, optionally pulling the latest image first
 func (h *Handlers) HandleRestartSite(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -242,10 +242,53 @@ func (h *Handlers) HandleRestartSite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Restart site
-	if err := h.dockerClient.RestartSite(ctx, siteID); err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to restart site: "+err.Error())
+	// Parse optional request body for credentials (to pull latest image)
+	var req struct {
+		DockerUsername       string `json:"docker_username,omitempty"`
+		DockerToken          string `json:"docker_token,omitempty"`
+		CredentialsEncrypted bool   `json:"credentials_encrypted,omitempty"`
+		PullLatest           bool   `json:"pull_latest,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
 		return
+	}
+
+	// If pull_latest is requested, use RestartSiteWithPull
+	if req.PullLatest {
+		// Decrypt credentials if encrypted
+		username := req.DockerUsername
+		password := req.DockerToken
+		if req.CredentialsEncrypted && h.apiKey != "" {
+			if username != "" {
+				decrypted, err := crypto.Decrypt(username, h.apiKey)
+				if err != nil {
+					log.Printf("Warning: Failed to decrypt username: %v", err)
+				} else {
+					username = decrypted
+				}
+			}
+			if password != "" {
+				decrypted, err := crypto.Decrypt(password, h.apiKey)
+				if err != nil {
+					log.Printf("Warning: Failed to decrypt token: %v", err)
+				} else {
+					password = decrypted
+				}
+			}
+		}
+
+		// Restart with pull
+		if err := h.dockerClient.RestartSiteWithPull(ctx, siteID, username, password); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to restart site: "+err.Error())
+			return
+		}
+	} else {
+		// Simple restart without pull
+		if err := h.dockerClient.RestartSite(ctx, siteID); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to restart site: "+err.Error())
+			return
+		}
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Site restarted successfully"})

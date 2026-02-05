@@ -106,6 +106,8 @@ func RenderScreen(s *state.AppState, zm *zone.Manager) string {
 		return screens.RenderNodeConfig(s)
 	case state.ScreenNodeConfigSave:
 		return screens.RenderNodeConfigSaveWithZones(s, zm)
+	case state.ScreenNodeQuickConfig:
+		return screens.RenderQuickConfig(s)
 	case state.ScreenSettings:
 		return screens.RenderSettingsWithZones(s, zm)
 	case state.ScreenHelp:

@@ -6,10 +6,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
-	"github.com/BlueBeard63/archon-node/internal/models"
 	"github.com/BlueBeard63/archon-node/internal/mocks"
+	"github.com/BlueBeard63/archon-node/internal/models"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -205,4 +207,195 @@ type DockerClientInterface interface {
 // ProxyManagerInterface defines the interface for proxy manager operations used in handlers
 type ProxyManagerInterface interface {
 	GetInfo(ctx context.Context) (*models.TraefikInfo, error)
+}
+
+// Restart handler tests
+
+func TestHandleRestartSite_Simple(t *testing.T) {
+	dockerClient := new(mocks.MockDockerClient)
+
+	siteID := "550e8400-e29b-41d4-a716-446655440000"
+	expectedUUID, _ := uuid.Parse(siteID)
+	dockerClient.On("RestartSite", mock.Anything, expectedUUID).Return(nil)
+
+	handlers := &RestartHandlersTestable{
+		dockerClientMock: dockerClient,
+	}
+
+	req := httptest.NewRequest("POST", "/api/v1/sites/"+siteID+"/restart", nil)
+	w := httptest.NewRecorder()
+
+	handlers.HandleRestartSiteTestable(w, req, siteID)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]string
+	err := json.NewDecoder(w.Body).Decode(&response)
+	require.NoError(t, err)
+	assert.Equal(t, "Site restarted successfully", response["message"])
+
+	dockerClient.AssertExpectations(t)
+}
+
+func TestHandleRestartSite_WithPullLatest(t *testing.T) {
+	dockerClient := new(mocks.MockDockerClient)
+
+	siteID := "550e8400-e29b-41d4-a716-446655440000"
+	expectedUUID, _ := uuid.Parse(siteID)
+	dockerClient.On("RestartSiteWithPull", mock.Anything, expectedUUID, "", "").Return(nil)
+
+	handlers := &RestartHandlersTestable{
+		dockerClientMock: dockerClient,
+	}
+
+	body := `{"pull_latest": true}`
+	req := httptest.NewRequest("POST", "/api/v1/sites/"+siteID+"/restart", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handlers.HandleRestartSiteTestable(w, req, siteID)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]string
+	err := json.NewDecoder(w.Body).Decode(&response)
+	require.NoError(t, err)
+	assert.Equal(t, "Site restarted successfully", response["message"])
+
+	dockerClient.AssertExpectations(t)
+}
+
+func TestHandleRestartSite_WithPullLatestAndCredentials(t *testing.T) {
+	dockerClient := new(mocks.MockDockerClient)
+
+	siteID := "550e8400-e29b-41d4-a716-446655440000"
+	expectedUUID, _ := uuid.Parse(siteID)
+	dockerClient.On("RestartSiteWithPull", mock.Anything, expectedUUID, "myuser", "mytoken").Return(nil)
+
+	handlers := &RestartHandlersTestable{
+		dockerClientMock: dockerClient,
+	}
+
+	body := `{"pull_latest": true, "docker_username": "myuser", "docker_token": "mytoken"}`
+	req := httptest.NewRequest("POST", "/api/v1/sites/"+siteID+"/restart", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handlers.HandleRestartSiteTestable(w, req, siteID)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]string
+	err := json.NewDecoder(w.Body).Decode(&response)
+	require.NoError(t, err)
+	assert.Equal(t, "Site restarted successfully", response["message"])
+
+	dockerClient.AssertExpectations(t)
+}
+
+func TestHandleRestartSite_InvalidSiteID(t *testing.T) {
+	dockerClient := new(mocks.MockDockerClient)
+
+	handlers := &RestartHandlersTestable{
+		dockerClientMock: dockerClient,
+	}
+
+	req := httptest.NewRequest("POST", "/api/v1/sites/invalid-uuid/restart", nil)
+	w := httptest.NewRecorder()
+
+	handlers.HandleRestartSiteTestable(w, req, "invalid-uuid")
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestHandleRestartSite_RestartFails(t *testing.T) {
+	dockerClient := new(mocks.MockDockerClient)
+
+	siteID := "550e8400-e29b-41d4-a716-446655440000"
+	expectedUUID, _ := uuid.Parse(siteID)
+	dockerClient.On("RestartSite", mock.Anything, expectedUUID).Return(errors.New("container not found"))
+
+	handlers := &RestartHandlersTestable{
+		dockerClientMock: dockerClient,
+	}
+
+	req := httptest.NewRequest("POST", "/api/v1/sites/"+siteID+"/restart", nil)
+	w := httptest.NewRecorder()
+
+	handlers.HandleRestartSiteTestable(w, req, siteID)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+
+	dockerClient.AssertExpectations(t)
+}
+
+func TestHandleRestartSite_WithPullLatestFails(t *testing.T) {
+	dockerClient := new(mocks.MockDockerClient)
+
+	siteID := "550e8400-e29b-41d4-a716-446655440000"
+	expectedUUID, _ := uuid.Parse(siteID)
+	dockerClient.On("RestartSiteWithPull", mock.Anything, expectedUUID, "", "").Return(errors.New("container not found"))
+
+	handlers := &RestartHandlersTestable{
+		dockerClientMock: dockerClient,
+	}
+
+	body := `{"pull_latest": true}`
+	req := httptest.NewRequest("POST", "/api/v1/sites/"+siteID+"/restart", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handlers.HandleRestartSiteTestable(w, req, siteID)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+
+	dockerClient.AssertExpectations(t)
+}
+
+// RestartHandlersTestable is a testable version for restart operations
+type RestartHandlersTestable struct {
+	dockerClientMock *mocks.MockDockerClient
+	apiKey           string
+}
+
+// HandleRestartSiteTestable is a testable version of HandleRestartSite
+func (h *RestartHandlersTestable) HandleRestartSiteTestable(w http.ResponseWriter, r *http.Request, siteIDStr string) {
+	ctx := r.Context()
+
+	siteID, err := uuid.Parse(siteIDStr)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid site ID")
+		return
+	}
+
+	// Parse optional request body for credentials
+	var req struct {
+		DockerUsername       string `json:"docker_username,omitempty"`
+		DockerToken          string `json:"docker_token,omitempty"`
+		CredentialsEncrypted bool   `json:"credentials_encrypted,omitempty"`
+		PullLatest           bool   `json:"pull_latest,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// If pull_latest is requested, use RestartSiteWithPull
+	if req.PullLatest {
+		username := req.DockerUsername
+		password := req.DockerToken
+		// Note: credential decryption would happen here if apiKey is set
+
+		if err := h.dockerClientMock.RestartSiteWithPull(ctx, siteID, username, password); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to restart site: "+err.Error())
+			return
+		}
+	} else {
+		if err := h.dockerClientMock.RestartSite(ctx, siteID); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to restart site: "+err.Error())
+			return
+		}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"message": "Site restarted successfully"})
 }

@@ -46,8 +46,8 @@ func (m *MockNodeClient) StopSite(endpoint, apiKey string, siteID uuid.UUID, sit
 }
 
 // RestartSite mocks the RestartSite method
-func (m *MockNodeClient) RestartSite(endpoint, apiKey string, siteID uuid.UUID) error {
-	args := m.Called(endpoint, apiKey, siteID)
+func (m *MockNodeClient) RestartSite(endpoint, apiKey string, siteID uuid.UUID, pullLatest bool, dockerUsername, dockerToken string) error {
+	args := m.Called(endpoint, apiKey, siteID, pullLatest, dockerUsername, dockerToken)
 	return args.Error(0)
 }
 
@@ -101,3 +101,4 @@ func (m *MockNodeClient) GetContainerMetrics(endpoint, apiKey string, siteID uui
 	}
 	return args.Get(0).(*api.ContainerMetrics), args.Error(1)
 }
+

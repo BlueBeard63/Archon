@@ -561,6 +561,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case QuickConfigUploadedMsg:
+		// Handle quick config upload result (dpaste.org)
+		if msg.Error != nil {
+			m.state.AddNotification("Failed to upload config: "+msg.Error.Error(), "error")
+		} else {
+			m.state.QuickConfigURL = msg.FetchURL
+			m.state.QuickConfigExpiresAt = msg.ExpiresAt
+			m.state.QuickConfigNodeID = msg.NodeID
+			m.state.QuickConfigHealthConfirmed = false
+			m.state.AddNotification("Config uploaded to dpaste.org", "success")
+		}
+		return m, nil
+
+	case QuickConfigStatusMsg:
+		// Handle quick config health check result
+		if msg.Error != nil {
+			m.state.AddNotification("Failed to check node status: "+msg.Error.Error(), "error")
+		} else {
+			m.state.QuickConfigHealthConfirmed = msg.HealthConfirmed
+			if msg.HealthConfirmed {
+				m.state.AddNotification("New node health confirmed!", "success")
+			}
+		}
+		return m, nil
+
 	// ========================================================================
 	// Form Handling
 	// ========================================================================
@@ -1052,10 +1077,14 @@ func (m Model) spawnRestartSite(siteID uuid.UUID) tea.Cmd {
 		}
 
 		// Call nodeClient.RestartSite()
+		// TODO: Add UI option to enable pull_latest with credentials
 		err := m.nodeClient.RestartSite(
 			node.APIEndpoint,
 			node.APIKey,
 			siteID,
+			false, // pullLatest - can be enabled via UI in future
+			"",    // dockerUsername
+			"",    // dockerToken
 		)
 
 		return SiteOperationResultMsg{

@@ -14,6 +14,7 @@ import (
 	"github.com/BlueBeard63/archon/internal/compose"
 	"github.com/BlueBeard63/archon/internal/config"
 	"github.com/BlueBeard63/archon/internal/models"
+	"github.com/BlueBeard63/archon/internal/pastebin"
 	"github.com/BlueBeard63/archon/internal/state"
 )
 
@@ -186,6 +187,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNodeConfigKeys(msg)
 	case state.ScreenNodeConfigSave:
 		return m.handleNodeConfigSaveKeys(msg)
+	case state.ScreenNodeQuickConfig:
+		return m.handleNodeQuickConfigKeys(msg)
 	case state.ScreenHelp:
 		return m.handleHelpKeys(msg)
 	case state.ScreenSiteDeleteConfirm:
@@ -1792,6 +1795,140 @@ func (m Model) handleSaveNodeConfigSubmit() (tea.Model, tea.Cmd) {
 	m.state.NavigateBack()
 
 	return m, nil
+}
+
+// handleNodeQuickConfigKeys handles keys on the quick config screen
+func (m Model) handleNodeQuickConfigKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		if m.state.QuickConfigURL == "" {
+			// Upload config to dpaste
+			return m.handleUploadQuickConfig()
+		}
+		// Done - clear state and navigate back
+		m.state.QuickConfigURL = ""
+		m.state.QuickConfigExpiresAt = ""
+		m.state.QuickConfigNodeID = uuid.Nil
+		m.state.QuickConfigHealthConfirmed = false
+		m.state.NavigateBack()
+		return m, nil
+
+	case "r", "R":
+		if m.state.QuickConfigURL != "" {
+			// Refresh health check status by polling the node
+			return m.handleRefreshQuickConfigStatus()
+		}
+		return m, nil
+
+	case "esc":
+		// Cancel - dpaste pastes auto-expire, no delete needed
+		m.state.QuickConfigURL = ""
+		m.state.QuickConfigExpiresAt = ""
+		m.state.QuickConfigNodeID = uuid.Nil
+		m.state.QuickConfigHealthConfirmed = false
+		m.state.NavigateBack()
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// handleUploadQuickConfig uploads the node config to dpaste.org
+func (m Model) handleUploadQuickConfig() (tea.Model, tea.Cmd) {
+	// Find the selected node
+	var node *models.Node
+	for i := range m.state.Nodes {
+		if m.state.Nodes[i].ID == m.state.SelectedNodeID {
+			node = &m.state.Nodes[i]
+			break
+		}
+	}
+
+	if node == nil {
+		m.state.AddNotification("Node not found", "error")
+		m.state.NavigateBack()
+		return m, nil
+	}
+
+	// Generate the config TOML
+	configContent := node.GenerateNodeConfigTOML()
+	nodeID := node.ID
+
+	// Spawn async operation to upload to dpaste
+	return m, func() tea.Msg {
+		client := pastebin.NewDPasteClient()
+
+		// Upload with 1 hour expiration (3600 seconds)
+		rawURL, err := client.Upload(configContent, 3600)
+		if err != nil {
+			return QuickConfigUploadedMsg{
+				NodeID: nodeID,
+				Error:  err,
+			}
+		}
+
+		// Calculate expiration time
+		expiresAt := time.Now().Add(1 * time.Hour).Format("15:04:05")
+
+		return QuickConfigUploadedMsg{
+			NodeID:    nodeID,
+			FetchURL:  rawURL,
+			ExpiresAt: expiresAt,
+			Error:     nil,
+		}
+	}
+}
+
+// handleRefreshQuickConfigStatus polls the node's health check endpoint
+func (m Model) handleRefreshQuickConfigStatus() (tea.Model, tea.Cmd) {
+	// Find the node being configured
+	var node *models.Node
+	for i := range m.state.Nodes {
+		if m.state.Nodes[i].ID == m.state.QuickConfigNodeID {
+			node = &m.state.Nodes[i]
+			break
+		}
+	}
+
+	if node == nil {
+		// Try the selected node as fallback
+		for i := range m.state.Nodes {
+			if m.state.Nodes[i].ID == m.state.SelectedNodeID {
+				node = &m.state.Nodes[i]
+				break
+			}
+		}
+	}
+
+	if node == nil {
+		m.state.AddNotification("Node not found", "error")
+		return m, nil
+	}
+
+	nodeID := node.ID
+	endpoint := node.APIEndpoint
+	apiKey := node.APIKey
+
+	return m, func() tea.Msg {
+		// Perform health check on the node
+		_, err := m.nodeClient.HealthCheck(endpoint, apiKey)
+
+		if err != nil {
+			// Node not yet responding
+			return QuickConfigStatusMsg{
+				NodeID:          nodeID,
+				HealthConfirmed: false,
+				Error:           nil, // Don't show error, node just isn't up yet
+			}
+		}
+
+		// Health check passed!
+		return QuickConfigStatusMsg{
+			NodeID:          nodeID,
+			HealthConfirmed: true,
+			Error:           nil,
+		}
+	}
 }
 
 // handleSettingsKeys handles keys on the settings form

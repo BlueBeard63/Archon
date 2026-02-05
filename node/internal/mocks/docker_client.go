@@ -49,6 +49,12 @@ func (m *MockDockerClient) RestartSite(ctx context.Context, siteID uuid.UUID) er
 	return args.Error(0)
 }
 
+// RestartSiteWithPull mocks the RestartSiteWithPull method
+func (m *MockDockerClient) RestartSiteWithPull(ctx context.Context, siteID uuid.UUID, username, password string) error {
+	args := m.Called(ctx, siteID, username, password)
+	return args.Error(0)
+}
+
 // DeleteSite mocks the DeleteSite method
 func (m *MockDockerClient) DeleteSite(ctx context.Context, siteID uuid.UUID) error {
 	args := m.Called(ctx, siteID)
