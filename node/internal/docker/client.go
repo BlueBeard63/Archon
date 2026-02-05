@@ -321,6 +321,66 @@ func (c *Client) RestartSite(ctx context.Context, siteID uuid.UUID) error {
 	return nil
 }
 
+// RestartSiteWithPull pulls the latest image and then restarts the container.
+// If the image pull fails, it logs a warning and continues with the restart using the existing image.
+// This allows the container to restart even if the registry is unreachable or credentials are invalid.
+func (c *Client) RestartSiteWithPull(ctx context.Context, siteID uuid.UUID, username, password string) error {
+	// Get container status
+	status, err := c.GetSiteStatus(ctx, siteID)
+	if err != nil {
+		return err
+	}
+
+	if status.ContainerID == "" {
+		return fmt.Errorf("container not found")
+	}
+
+	// Inspect container to get the image name
+	containerInfo, err := c.cli.ContainerInspect(ctx, status.ContainerID)
+	if err != nil {
+		return fmt.Errorf("failed to inspect container: %w", err)
+	}
+
+	imageName := containerInfo.Config.Image
+
+	// Build auth string for private registries
+	authStr := ""
+	if username != "" && password != "" {
+		authConfig := map[string]string{
+			"username": username,
+			"password": password,
+		}
+		encodedJSON, err := json.Marshal(authConfig)
+		if err != nil {
+			log.Printf("[WARNING] Failed to encode credentials for image pull: %v", err)
+		} else {
+			authStr = base64.StdEncoding.EncodeToString(encodedJSON)
+		}
+	}
+
+	// Attempt to pull the latest image
+	reader, err := c.cli.ImagePull(ctx, imageName, image.PullOptions{
+		RegistryAuth: authStr,
+	})
+	if err != nil {
+		// Log warning but continue with restart using existing image
+		log.Printf("[WARNING] Failed to pull latest image %s: %v. Continuing with existing image.", imageName, err)
+	} else {
+		// Consume pull output
+		io.Copy(io.Discard, reader)
+		reader.Close()
+		log.Printf("[INFO] Successfully pulled latest image: %s", imageName)
+	}
+
+	// Restart the container
+	timeout := 10
+	if err := c.cli.ContainerRestart(ctx, status.ContainerID, container.StopOptions{Timeout: &timeout}); err != nil {
+		return fmt.Errorf("failed to restart container: %w", err)
+	}
+
+	return nil
+}
+
 // DeleteSite stops and removes a site
 func (c *Client) DeleteSite(ctx context.Context, siteID uuid.UUID) error {
 	status, err := c.GetSiteStatus(ctx, siteID)
@@ -440,6 +500,106 @@ func (c *Client) CheckPortConflicts(ctx context.Context, hostPorts []int, exclud
 
 	if len(conflicts) > 0 {
 		return fmt.Errorf("port conflicts detected: %s", strings.Join(conflicts, ", "))
+	}
+
+	return nil
+}
+
+// UpdateSite pulls the latest image and recreates the container with the same configuration
+func (c *Client) UpdateSite(ctx context.Context, siteID uuid.UUID, username, password string) error {
+	// Get the container status
+	status, err := c.GetSiteStatus(ctx, siteID)
+	if err != nil {
+		return fmt.Errorf("failed to get site status: %w", err)
+	}
+
+	if status.ContainerID == "" {
+		return fmt.Errorf("container not found")
+	}
+
+	// Inspect the container to get its configuration
+	containerInfo, err := c.cli.ContainerInspect(ctx, status.ContainerID)
+	if err != nil {
+		return fmt.Errorf("failed to inspect container: %w", err)
+	}
+
+	// Get the image name
+	imageName := containerInfo.Config.Image
+
+	// Build auth string for private registries
+	authStr := ""
+	if username != "" && password != "" {
+		authConfig := map[string]string{
+			"username": username,
+			"password": password,
+		}
+		encodedJSON, err := json.Marshal(authConfig)
+		if err != nil {
+			return fmt.Errorf("failed to encode credentials: %w", err)
+		}
+		authStr = base64.StdEncoding.EncodeToString(encodedJSON)
+	}
+
+	// Pull the latest image
+	reader, err := c.cli.ImagePull(ctx, imageName, image.PullOptions{
+		RegistryAuth: authStr,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to pull image: %w", err)
+	}
+	defer reader.Close()
+
+	// Consume pull output
+	io.Copy(io.Discard, reader)
+
+	// Stop the existing container
+	timeout := 10
+	if err := c.cli.ContainerStop(ctx, status.ContainerID, container.StopOptions{Timeout: &timeout}); err != nil {
+		return fmt.Errorf("failed to stop container: %w", err)
+	}
+
+	// Remove the existing container
+	if err := c.cli.ContainerRemove(ctx, status.ContainerID, container.RemoveOptions{}); err != nil {
+		return fmt.Errorf("failed to remove container: %w", err)
+	}
+
+	// Recreate the container with the same configuration
+	containerName := containerInfo.Name
+	if len(containerName) > 0 && containerName[0] == '/' {
+		containerName = containerName[1:] // Remove leading slash
+	}
+
+	// Create container config from inspected container
+	containerConfig := &container.Config{
+		Image:        imageName,
+		Env:          containerInfo.Config.Env,
+		ExposedPorts: containerInfo.Config.ExposedPorts,
+		Labels:       containerInfo.Config.Labels,
+	}
+
+	// Create host config from inspected container
+	hostConfig := &container.HostConfig{
+		PortBindings:  containerInfo.HostConfig.PortBindings,
+		RestartPolicy: containerInfo.HostConfig.RestartPolicy,
+		Binds:         containerInfo.HostConfig.Binds,
+	}
+
+	// Create network config
+	networkingConfig := &network.NetworkingConfig{
+		EndpointsConfig: map[string]*network.EndpointSettings{
+			c.networkName: {},
+		},
+	}
+
+	// Create the new container
+	resp, err := c.cli.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, containerName)
+	if err != nil {
+		return fmt.Errorf("failed to create container: %w", err)
+	}
+
+	// Start the container
+	if err := c.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		return fmt.Errorf("failed to start container: %w", err)
 	}
 
 	return nil

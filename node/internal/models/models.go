@@ -39,6 +39,10 @@ type DeployRequest struct {
 	SSLKey          string            `json:"ssl_key,omitempty"`   // Base64 encoded key
 	ConfigFiles     []ConfigFile      `json:"config_files"`
 	TraefikLabels   map[string]string `json:"traefik_labels,omitempty"`
+	// Bot redirect configuration
+	BotRedirectEnabled bool     `json:"bot_redirect_enabled,omitempty"`
+	BotRedirectURL     string   `json:"bot_redirect_url,omitempty"`
+	BotUserAgents      []string `json:"bot_user_agents,omitempty"` // If empty, uses defaults
 }
 
 // IsCompose returns true if this is a compose deployment
@@ -80,8 +84,9 @@ type Docker struct {
 }
 
 type DockerCredentials struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
+	Encrypted bool   `json:"encrypted,omitempty"` // True if credentials are encrypted with KDF
 }
 
 type ConfigFile struct {

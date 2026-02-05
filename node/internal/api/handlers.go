@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/BlueBeard63/archon-node/internal/compose"
+	"github.com/BlueBeard63/archon-node/internal/crypto"
 	"github.com/BlueBeard63/archon-node/internal/docker"
 	"github.com/BlueBeard63/archon-node/internal/models"
 	"github.com/BlueBeard63/archon-node/internal/pipeline"
@@ -23,6 +24,7 @@ type Handlers struct {
 	proxyManager    proxy.ProxyManager
 	sslManager      *ssl.Manager
 	dataDir         string
+	apiKey          string // Used for decrypting credentials
 }
 
 func NewHandlers(
@@ -31,6 +33,7 @@ func NewHandlers(
 	proxyManager proxy.ProxyManager,
 	sslManager *ssl.Manager,
 	dataDir string,
+	apiKey string,
 ) *Handlers {
 	return &Handlers{
 		dockerClient:    dockerClient,
@@ -38,6 +41,7 @@ func NewHandlers(
 		proxyManager:    proxyManager,
 		sslManager:      sslManager,
 		dataDir:         dataDir,
+		apiKey:          apiKey,
 	}
 }
 
@@ -45,18 +49,36 @@ func NewHandlers(
 func (h *Handlers) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	var dockerInfo *models.DockerInfo
+	var traefikInfo *models.TraefikInfo
+	dockerHealthy := false
+	proxyHealthy := false
+
 	// Get Docker info
-	dockerInfo, err := h.dockerClient.GetDockerInfo(ctx)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to get Docker info")
-		return
+	if info, err := h.dockerClient.GetDockerInfo(ctx); err == nil {
+		dockerInfo = info
+		dockerHealthy = true
 	}
 
 	// Get proxy info
-	traefikInfo, _ := h.proxyManager.GetInfo(ctx)
+	if info, err := h.proxyManager.GetInfo(ctx); err == nil {
+		traefikInfo = info
+		proxyHealthy = true
+	}
+
+	// Determine status based on component health
+	// - online: both Docker and proxy are healthy
+	// - degraded: one of Docker or proxy is down
+	// - offline: both Docker and proxy are down
+	status := "offline"
+	if dockerHealthy && proxyHealthy {
+		status = "online"
+	} else if dockerHealthy || proxyHealthy {
+		status = "degraded"
+	}
 
 	response := models.HealthResponse{
-		Status:  "healthy",
+		Status:  status,
 		Docker:  dockerInfo,
 		Traefik: traefikInfo,
 	}
@@ -75,8 +97,34 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Log the received request for debugging
-	reqJSON, _ := json.MarshalIndent(req, "", "  ")
+	// Decrypt credentials if they are encrypted
+	if req.Docker.Credentials.Encrypted && h.apiKey != "" {
+		decryptedUser, err := crypto.Decrypt(req.Docker.Credentials.Username, h.apiKey)
+		if err != nil {
+			log.Printf("[ERROR] Failed to decrypt username: %v", err)
+			respondError(w, http.StatusBadRequest, "Failed to decrypt credentials")
+			return
+		}
+		decryptedPass, err := crypto.Decrypt(req.Docker.Credentials.Password, h.apiKey)
+		if err != nil {
+			log.Printf("[ERROR] Failed to decrypt password: %v", err)
+			respondError(w, http.StatusBadRequest, "Failed to decrypt credentials")
+			return
+		}
+		req.Docker.Credentials.Username = decryptedUser
+		req.Docker.Credentials.Password = decryptedPass
+		req.Docker.Credentials.Encrypted = false
+	}
+
+	// Log the received request for debugging (with credentials redacted)
+	reqCopy := req
+	if reqCopy.Docker.Credentials.Username != "" {
+		reqCopy.Docker.Credentials.Username = "[REDACTED]"
+	}
+	if reqCopy.Docker.Credentials.Password != "" {
+		reqCopy.Docker.Credentials.Password = "[REDACTED]"
+	}
+	reqJSON, _ := json.MarshalIndent(reqCopy, "", "  ")
 	log.Printf("========================================")
 	log.Printf("Received Deploy Request:")
 	log.Printf("----------------------------------------")
@@ -182,7 +230,7 @@ func (h *Handlers) HandleStopSite(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Site stopped successfully"})
 }
 
-// HandleRestartSite restarts a site
+// HandleRestartSite restarts a site, optionally pulling the latest image first
 func (h *Handlers) HandleRestartSite(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -194,10 +242,53 @@ func (h *Handlers) HandleRestartSite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Restart site
-	if err := h.dockerClient.RestartSite(ctx, siteID); err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to restart site: "+err.Error())
+	// Parse optional request body for credentials (to pull latest image)
+	var req struct {
+		DockerUsername       string `json:"docker_username,omitempty"`
+		DockerToken          string `json:"docker_token,omitempty"`
+		CredentialsEncrypted bool   `json:"credentials_encrypted,omitempty"`
+		PullLatest           bool   `json:"pull_latest,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
 		return
+	}
+
+	// If pull_latest is requested, use RestartSiteWithPull
+	if req.PullLatest {
+		// Decrypt credentials if encrypted
+		username := req.DockerUsername
+		password := req.DockerToken
+		if req.CredentialsEncrypted && h.apiKey != "" {
+			if username != "" {
+				decrypted, err := crypto.Decrypt(username, h.apiKey)
+				if err != nil {
+					log.Printf("Warning: Failed to decrypt username: %v", err)
+				} else {
+					username = decrypted
+				}
+			}
+			if password != "" {
+				decrypted, err := crypto.Decrypt(password, h.apiKey)
+				if err != nil {
+					log.Printf("Warning: Failed to decrypt token: %v", err)
+				} else {
+					password = decrypted
+				}
+			}
+		}
+
+		// Restart with pull
+		if err := h.dockerClient.RestartSiteWithPull(ctx, siteID, username, password); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to restart site: "+err.Error())
+			return
+		}
+	} else {
+		// Simple restart without pull
+		if err := h.dockerClient.RestartSite(ctx, siteID); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to restart site: "+err.Error())
+			return
+		}
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Site restarted successfully"})
@@ -257,6 +348,60 @@ func (h *Handlers) HandleDeleteSite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Site deleted successfully"})
+}
+
+// HandleUpdateSite pulls the latest image and recreates the container
+func (h *Handlers) HandleUpdateSite(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get site ID from URL
+	siteIDStr := chi.URLParam(r, "siteID")
+	siteID, err := uuid.Parse(siteIDStr)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid site ID")
+		return
+	}
+
+	// Parse optional request body for credentials
+	var req struct {
+		DockerUsername         string `json:"docker_username,omitempty"`
+		DockerToken            string `json:"docker_token,omitempty"`
+		CredentialsEncrypted   bool   `json:"credentials_encrypted,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Decrypt credentials if encrypted
+	username := req.DockerUsername
+	password := req.DockerToken
+	if req.CredentialsEncrypted && h.apiKey != "" {
+		if username != "" {
+			decrypted, err := crypto.Decrypt(username, h.apiKey)
+			if err != nil {
+				log.Printf("Warning: Failed to decrypt username: %v", err)
+			} else {
+				username = decrypted
+			}
+		}
+		if password != "" {
+			decrypted, err := crypto.Decrypt(password, h.apiKey)
+			if err != nil {
+				log.Printf("Warning: Failed to decrypt token: %v", err)
+			} else {
+				password = decrypted
+			}
+		}
+	}
+
+	// Update the site
+	if err := h.dockerClient.UpdateSite(ctx, siteID, username, password); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to update site: "+err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"message": "Site updated successfully"})
 }
 
 // HandleGetLogs retrieves container logs

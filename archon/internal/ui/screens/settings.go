@@ -7,6 +7,7 @@ import (
 	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/BlueBeard63/archon/internal/state"
+	"github.com/BlueBeard63/archon/internal/ui/components"
 )
 
 // RenderSettings renders the settings screen
@@ -26,7 +27,10 @@ func RenderSettingsWithZones(s *state.AppState, zm *zone.Manager) string {
 		s.CurrentFieldIndex = 0
 	}
 
-	title := titleStyle.Render("⚙️  Settings")
+	title := titleStyle.Render("Settings")
+
+	// DNS Settings section
+	dnsSection := lipgloss.NewStyle().Bold(true).Render("DNS Provider Credentials")
 
 	labels := []string{
 		"Cloudflare API Token:",
@@ -77,8 +81,51 @@ func RenderSettingsWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 	}
 
-	help := helpStyle.Render("\nTab/Shift+Tab to navigate, Enter to save, Esc to cancel")
+	// Docker Registry Credentials section
+	dockerSection := lipgloss.NewStyle().Bold(true).Render("Docker Registry Credentials")
+
+	credCount := len(s.DockerCredentials)
+	var credStatus string
+	if credCount == 0 {
+		credStatus = lipgloss.NewStyle().Faint(true).Render("No credentials configured")
+	} else if credCount == 1 {
+		credStatus = "1 credential configured"
+	} else {
+		credStatus = fmt.Sprintf("%d credentials configured", credCount)
+	}
+
+	// Create button for Docker credentials
+	dockerBtn := &components.ButtonGroup{
+		Buttons: []components.Button{
+			{ID: "manage-docker-credentials", Label: "Manage Docker Credentials", Primary: false},
+		},
+	}
+
+	var dockerBtnStr string
+	if zm != nil {
+		dockerBtnStr = dockerBtn.RenderWithZones(zm)
+	} else {
+		dockerBtnStr = dockerBtn.Render()
+	}
+
+	help := helpStyle.Render("\nTab/Shift+Tab to navigate • Enter to save • d for Docker credentials • Esc to go back")
 	note := helpStyle.Render("Note: Global credentials are stored in config.toml and used as defaults.\nZone IDs are configured per-domain when creating or editing domains.")
 
-	return title + "\n\n" + fields + help + "\n" + note
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		dnsSection,
+		"",
+		fields,
+		dockerSection,
+		"",
+		credStatus,
+		"",
+		dockerBtnStr,
+		"",
+		help,
+		"",
+		note,
+	)
 }

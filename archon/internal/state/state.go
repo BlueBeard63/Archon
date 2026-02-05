@@ -23,47 +23,56 @@ type TableComponent interface {
 type Screen string
 
 const (
-	ScreenDashboard         Screen = "dashboard"
-	ScreenSitesList         Screen = "sites_list"
-	ScreenSiteCreate        Screen = "site_create"
-	ScreenSiteEdit          Screen = "site_edit"
-	ScreenSiteEnvVars       Screen = "site_env_vars"
-	ScreenDomainsList       Screen = "domains_list"
-	ScreenDomainCreate      Screen = "domain_create"
-	ScreenDomainEdit        Screen = "domain_edit"
-	ScreenDomainDnsRecords  Screen = "domain_dns_records"
-	ScreenNodesList         Screen = "nodes_list"
-	ScreenNodeCreate        Screen = "node_create"
-	ScreenNodeEdit          Screen = "node_edit"
-	ScreenNodeConfig        Screen = "node_config"
-	ScreenNodeConfigSave    Screen = "node_config_save"
-	ScreenSettings          Screen = "settings"
-	ScreenHelp              Screen = "help"
+	ScreenDashboard              Screen = "dashboard"
+	ScreenSitesList              Screen = "sites_list"
+	ScreenSiteCreate             Screen = "site_create"
+	ScreenSiteEdit               Screen = "site_edit"
+	ScreenSiteEnvVars            Screen = "site_env_vars"
+	ScreenDomainsList            Screen = "domains_list"
+	ScreenDomainCreate           Screen = "domain_create"
+	ScreenDomainEdit             Screen = "domain_edit"
+	ScreenDomainDnsRecords       Screen = "domain_dns_records"
+	ScreenNodesList              Screen = "nodes_list"
+	ScreenNodeCreate             Screen = "node_create"
+	ScreenNodeEdit               Screen = "node_edit"
+	ScreenNodeConfig             Screen = "node_config"
+	ScreenNodeConfigSave         Screen = "node_config_save"
+	ScreenNodeQuickConfig        Screen = "node_quick_config"
+	ScreenSettings               Screen = "settings"
+	ScreenDockerCredentialsList  Screen = "docker_credentials_list"
+	ScreenDockerCredentialCreate Screen = "docker_credential_create"
+	ScreenDockerCredentialEdit   Screen = "docker_credential_edit"
+	ScreenHelp                   Screen = "help"
+	ScreenSiteDeleteConfirm      Screen = "site_delete_confirm"
 )
 
 // AppState holds all application state for the TUI
 type AppState struct {
 	// Data
-	Sites   []models.Site   `json:"sites"`
-	Domains []models.Domain `json:"domains"`
-	Nodes   []models.Node   `json:"nodes"`
+	Sites             []models.Site      `json:"sites"`
+	Domains           []models.Domain    `json:"domains"`
+	Nodes             []models.Node      `json:"nodes"`
+	DockerCredentials []DockerCredential `json:"docker_credentials"`
 
 	// UI State
 	CurrentScreen   Screen   `json:"current_screen"`
 	PreviousScreens []Screen `json:"previous_screens"` // Navigation stack for back button
 
 	// Selection state (for table lists)
-	SitesListIndex   int       `json:"sites_list_index"`
-	DomainsListIndex int       `json:"domains_list_index"`
-	NodesListIndex   int       `json:"nodes_list_index"`
-	SelectedSiteID   uuid.UUID `json:"selected_site_id"`   // For editing site
-	SelectedDomainID uuid.UUID `json:"selected_domain_id"` // For editing domain
-	SelectedNodeID   uuid.UUID `json:"selected_node_id"`   // For viewing/editing node config
+	SitesListIndex            int       `json:"sites_list_index"`
+	DomainsListIndex          int       `json:"domains_list_index"`
+	NodesListIndex            int       `json:"nodes_list_index"`
+	DockerCredentialsListIndex int      `json:"docker_credentials_list_index"`
+	SelectedSiteID            uuid.UUID `json:"selected_site_id"`             // For editing site
+	SelectedDomainID          uuid.UUID `json:"selected_domain_id"`           // For editing domain
+	SelectedNodeID            uuid.UUID `json:"selected_node_id"`             // For viewing/editing node config
+	SelectedDockerCredentialID uuid.UUID `json:"selected_docker_credential_id"` // For editing Docker credential
 
 	// Table component instances (runtime only, not serialized)
-	SitesTable   TableComponent `json:"-"`
-	DomainsTable TableComponent `json:"-"`
-	NodesTable   TableComponent `json:"-"`
+	SitesTable             TableComponent `json:"-"`
+	DomainsTable           TableComponent `json:"-"`
+	NodesTable             TableComponent `json:"-"`
+	DockerCredentialsTable TableComponent `json:"-"`
 
 	// Viewport for scrollable content (runtime only, not serialized)
 	NodeConfigViewport viewport.Model `json:"-"`
@@ -86,6 +95,19 @@ type AppState struct {
 	// Edit form initialization tracking
 	EditFormInitialized bool `json:"edit_form_initialized"` // Track if edit form data has been loaded
 
+	// Deletion confirmation state
+	DeletionConfirmPending bool      `json:"deletion_confirm_pending"` // Whether a deletion confirmation is in progress
+	DeletionConfirmInput   string    `json:"deletion_confirm_input"`   // User's typed confirmation input
+	DeletionTargetID       uuid.UUID `json:"deletion_target_id"`       // ID of item pending deletion
+	DeletionTargetName     string    `json:"deletion_target_name"`     // Name of item pending deletion (for comparison)
+	DeletionTargetType     string    `json:"deletion_target_type"`     // Type of item: "site", "domain", "node"
+
+	// Quick config state (dpaste.org based)
+	QuickConfigURL           string    `json:"quick_config_url"`             // dpaste URL for sharing
+	QuickConfigExpiresAt     string    `json:"quick_config_expires_at"`      // Expiration time
+	QuickConfigNodeID        uuid.UUID `json:"quick_config_node_id"`         // Node being configured
+	QuickConfigHealthConfirmed bool    `json:"quick_config_health_confirmed"` // Whether health check confirmed
+
 	// Compose deployment state (for create/edit screens)
 	SiteTypeSelection  string `json:"site_type_selection"`  // "container" or "compose"
 	ComposeInputMethod string `json:"compose_input_method"` // "file" or "paste"
@@ -93,26 +115,39 @@ type AppState struct {
 	ComposeContent     string `json:"compose_content"`      // Pasted compose YAML content (when input method is "paste")
 
 	// Async operations tracking
-	PendingOperations []AsyncOperation `json:"pending_operations"`
-	Notifications     []Notification   `json:"notifications"`
+	PendingOperations       []AsyncOperation `json:"pending_operations"`
+	Notifications           []Notification   `json:"notifications"`
+	ForceRefreshInProgress  bool             `json:"force_refresh_in_progress"`
+	ForceRefreshTotal       int              `json:"force_refresh_total"`
+	ForceRefreshCompleted   int              `json:"force_refresh_completed"`
 
 	// Window dimensions (updated on resize)
 	WindowWidth  int `json:"window_width"`
 	WindowHeight int `json:"window_height"`
 
 	// Configuration
-	ConfigPath         string `json:"config_path"`
-	AutoSave           bool   `json:"auto_save"`
-	ShouldQuit         bool   `json:"should_quit"`
-	CloudflareAPIToken string `json:"cloudflare_api_token"` // Global default, can be overridden per-domain
-	Route53AccessKey   string `json:"route53_access_key"`   // Global default, can be overridden per-domain
-	Route53SecretKey   string `json:"route53_secret_key"`   // Global default, can be overridden per-domain
+	ConfigPath              string `json:"config_path"`
+	AutoSave                bool   `json:"auto_save"`
+	ShouldQuit              bool   `json:"should_quit"`
+	CloudflareAPIToken      string `json:"cloudflare_api_token"`       // Global default, can be overridden per-domain
+	Route53AccessKey        string `json:"route53_access_key"`         // Global default, can be overridden per-domain
+	Route53SecretKey        string `json:"route53_secret_key"`         // Global default, can be overridden per-domain
+	HealthCheckIntervalSecs int    `json:"health_check_interval_secs"` // Interval for automatic health checks
 }
 
 // EnvVarPair represents a single environment variable key-value pair
 type EnvVarPair struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
+}
+
+// DockerCredential represents stored Docker registry credentials (mirrors config.DockerCredential)
+type DockerCredential struct {
+	ID       uuid.UUID `json:"id"`
+	Name     string    `json:"name"`     // Display name (e.g., "GitHub Container Registry", "DockerHub")
+	Registry string    `json:"registry"` // Registry URL (e.g., "ghcr.io", "docker.io")
+	Username string    `json:"username"`
+	Token    string    `json:"token"`
 }
 
 // DomainMappingPair represents a port-to-domain mapping entry in the UI
@@ -187,6 +222,15 @@ func (s *AppState) NavigateTo(screen Screen) {
 		s.ComposeInputMethod = "file"     // Default to file input
 		s.ComposeFilePath = ""
 		s.ComposeContent = ""
+	}
+
+	// Reset deletion confirmation state when leaving confirmation screen
+	if screen != ScreenSiteDeleteConfirm {
+		s.DeletionConfirmPending = false
+		s.DeletionConfirmInput = ""
+		s.DeletionTargetID = uuid.Nil
+		s.DeletionTargetName = ""
+		s.DeletionTargetType = ""
 	}
 }
 

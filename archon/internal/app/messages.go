@@ -261,3 +261,37 @@ type AsyncResultMsg struct {
 
 // TickMsg is sent periodically for background tasks
 type TickMsg struct{}
+
+// ForceRefreshMsg triggers an immediate health check for all nodes and sites
+type ForceRefreshMsg struct{}
+
+// SiteStatusCheckResultMsg is returned after checking a site's status
+type SiteStatusCheckResultMsg struct {
+	SiteID uuid.UUID
+	Status string // "running", "stopped", "failed", etc.
+	Error  error
+}
+
+// ============================================================================
+// Quick Configure Messages (dpaste.org based)
+// ============================================================================
+
+// UploadQuickConfigMsg triggers upload of a node config to dpaste.org
+type UploadQuickConfigMsg struct {
+	NodeID uuid.UUID
+}
+
+// QuickConfigUploadedMsg is returned after config is uploaded to dpaste.org
+type QuickConfigUploadedMsg struct {
+	NodeID    uuid.UUID
+	FetchURL  string // dpaste.org raw URL
+	ExpiresAt string // When the paste expires
+	Error     error
+}
+
+// QuickConfigStatusMsg is returned with the node health check result
+type QuickConfigStatusMsg struct {
+	NodeID          uuid.UUID
+	HealthConfirmed bool
+	Error           error
+}

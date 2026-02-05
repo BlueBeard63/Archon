@@ -260,7 +260,7 @@ func RenderSitesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 	}
 
-	help := helpStyle.Render("\n\nPress j/k or arrows to navigate • Space/Enter to deploy • s to start/stop • e to edit • d to delete • n to create • Esc to go back")
+	help := helpStyle.Render("\n\nPress j/k or arrows to navigate • Space/Enter to deploy • s to start/stop • e to edit • d to delete • n to create • R to refresh • Esc to go back")
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -299,9 +299,9 @@ func RenderSiteCreate(s *state.AppState) string {
 
 // RenderSiteCreateWithZones renders the site creation form with clickable fields
 func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
-	// Always ensure form is properly initialized (7 fields: name, node, docker image/compose path, docker username, docker token, ssl email, config file)
-	if len(s.FormFields) != 7 {
-		s.FormFields = []string{"", "", "", "", "", "", ""}
+	// Always ensure form is properly initialized (6 fields: name, node, docker image/compose path, docker credential, ssl email, config file)
+	if len(s.FormFields) != 6 {
+		s.FormFields = []string{"", "", "", "", "", ""}
 	}
 
 	// Only reset field index if it's out of bounds (-1 is valid for site type selector)
@@ -369,8 +369,7 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 			"Name:",
 			"Node:",
 			"Compose File Path:",
-			"", // Hidden (docker username)
-			"", // Hidden (docker token)
+			"", // Hidden (docker credential - not needed for compose)
 			"SSL Email (for Let's Encrypt):",
 			"", // Hidden (config file - not applicable for compose)
 		}
@@ -379,8 +378,7 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 			"Name:",
 			"Node:",
 			"Docker Image:",
-			"Docker Username:",
-			"Docker Token:",
+			"Docker Credential:",
 			"SSL Email (for Let's Encrypt):",
 			"Config File Path (optional):",
 		}
@@ -397,9 +395,22 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		displayValue := value
 		isFocused := i == s.CurrentFieldIndex
 
-		// Show cursor if focused
-		if isFocused {
-			displayValue = value + "_"
+		// Special handling for Docker Credential dropdown (index 3)
+		if i == 3 && !isCompose {
+			if value == "" {
+				displayValue = "(None - Public Image)"
+			} else {
+				// Find credential name by ID
+				displayValue = getCredentialDisplayName(s, value)
+			}
+			if isFocused {
+				displayValue += " ▼"
+			}
+		} else {
+			// Show cursor if focused for text fields
+			if isFocused {
+				displayValue = value + "_"
+			}
 		}
 
 		// Render label with focus styling
@@ -415,6 +426,12 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 			dropdownOptions := renderDropdownOptions(s, s.Nodes, s.DropdownIndex, func(n models.Node) string {
 				return n.Name
 			})
+			fields += dropdownOptions + "\n"
+		}
+
+		// Show dropdown options for Docker Credential (index 3) when focused
+		if isFocused && i == 3 && s.DropdownOpen && !isCompose {
+			dropdownOptions := renderCredentialDropdown(s)
 			fields += dropdownOptions + "\n"
 		}
 	}
@@ -446,12 +463,14 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 			helpText = "\nDocker image to deploy (e.g., nginx:latest, myrepo/myimage:v1)"
 		}
 	case 3:
-		helpText = "\nLeave blank to skip Docker Auth (if image is public)"
+		if s.DropdownOpen {
+			helpText = "\nUp/Down to select, Enter/Tab to confirm, Esc to cancel"
+		} else {
+			helpText = "\nSelect saved credential for private registry, or leave empty for public images"
+		}
 	case 4:
-		helpText = "\nLeave blank to skip Docker Auth (if image is public)"
-	case 5:
 		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
-	case 6:
+	case 5:
 		helpText = "\nEnter full path to config file (will be loaded when site is created)"
 	case 200:
 		// Special index for domain mappings
@@ -468,7 +487,7 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	if isCompose {
 		note = helpStyle.Render("Note: Compose deployment • Port auto-detected from compose file (can be overridden)")
 	} else {
-		note = helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings, - to remove")
+		note = helpStyle.Render("Note: Node uses dropdown • Docker credentials from Settings • Use + to add domain mappings")
 	}
 
 	return title + "\n\n" + fields + "\n" + help + "\n" + note
@@ -494,16 +513,22 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	// Only initialize form data on first entry to edit screen
 	// This prevents typed input from being overwritten on every render
 	if !s.EditFormInitialized {
-		s.FormFields = make([]string, 7)
+		s.FormFields = make([]string, 6)
 		s.FormFields[0] = site.Name
 		if isCompose {
 			s.FormFields[2] = "(Compose content loaded)" // Placeholder for compose sites
 		} else {
 			s.FormFields[2] = site.DockerImage
 		}
-		s.FormFields[3] = site.DockerUsername
-		s.FormFields[4] = site.DockerToken
-		s.FormFields[5] = site.SSLEmail
+
+		// Docker credential - store ID as string, or empty for none
+		if site.DockerCredentialID != nil {
+			s.FormFields[3] = site.DockerCredentialID.String()
+		} else {
+			s.FormFields[3] = ""
+		}
+
+		s.FormFields[4] = site.SSLEmail
 
 		// Find node name
 		for _, n := range s.Nodes {
@@ -515,9 +540,9 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 
 		// Config file path (leave blank or show first config file name)
 		if len(site.ConfigFiles) > 0 {
-			s.FormFields[6] = site.ConfigFiles[0].Name
+			s.FormFields[5] = site.ConfigFiles[0].Name
 		} else {
-			s.FormFields[6] = ""
+			s.FormFields[5] = ""
 		}
 
 		// Initialize domain mapping pairs from current site data
@@ -583,8 +608,7 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 			"Name:",
 			"Node:",
 			"Compose Content:",
-			"", // Hidden (docker username)
-			"", // Hidden (docker token)
+			"", // Hidden (docker credential - not needed for compose)
 			"SSL Email (for Let's Encrypt):",
 			"", // Hidden (config file)
 		}
@@ -593,8 +617,7 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 			"Name:",
 			"Node:",
 			"Docker Image:",
-			"Docker Username:",
-			"Docker Token:",
+			"Docker Credential:",
 			"SSL Email (for Let's Encrypt):",
 			"Config File Path (optional):",
 		}
@@ -611,9 +634,22 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 		displayValue := value
 		isFocused := i == s.CurrentFieldIndex
 
-		// Show cursor if focused
-		if isFocused {
-			displayValue = value + "_"
+		// Special handling for Docker Credential dropdown (index 3)
+		if i == 3 && !isCompose {
+			if value == "" {
+				displayValue = "(None - Public Image)"
+			} else {
+				// Find credential name by ID
+				displayValue = getCredentialDisplayName(s, value)
+			}
+			if isFocused {
+				displayValue += " ▼"
+			}
+		} else {
+			// Show cursor if focused for text fields
+			if isFocused {
+				displayValue = value + "_"
+			}
 		}
 
 		// Render label with focus styling
@@ -629,6 +665,12 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 			dropdownOptions := renderDropdownOptions(s, s.Nodes, s.DropdownIndex, func(n models.Node) string {
 				return n.Name
 			})
+			fields += dropdownOptions + "\n"
+		}
+
+		// Show dropdown options for Docker Credential (index 3) when focused
+		if isFocused && i == 3 && s.DropdownOpen && !isCompose {
+			dropdownOptions := renderCredentialDropdown(s)
 			fields += dropdownOptions + "\n"
 		}
 	}
@@ -658,12 +700,14 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 			helpText = "\nDocker image to deploy (e.g., nginx:latest, myrepo/myimage:v1)"
 		}
 	case 3:
-		helpText = "\nLeave blank to skip Docker Auth (if image is public)"
+		if s.DropdownOpen {
+			helpText = "\nUp/Down to select, Enter/Tab to confirm, Esc to cancel"
+		} else {
+			helpText = "\nSelect saved credential for private registry, or leave empty for public images"
+		}
 	case 4:
-		helpText = "\nLeave blank to skip Docker Auth (if image is public)"
-	case 5:
 		helpText = "\nEmail for Let's Encrypt SSL certificate notifications (e.g., admin@example.com)"
-	case 6:
+	case 5:
 		helpText = "\nEnter full path to config file (will be loaded when site is saved)"
 	case 200:
 		// Special index for domain mappings
@@ -676,7 +720,7 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	if isCompose {
 		note = helpStyle.Render("Note: Compose site • To change compose content, delete and recreate the site")
 	} else {
-		note = helpStyle.Render("Note: Node uses dropdown • Use + to add domain mappings, - to remove • Press 'v' for ENV vars")
+		note = helpStyle.Render("Note: Node uses dropdown • Docker credentials from Settings • Press 'v' for ENV vars")
 	}
 
 	return title + "\n\n" + fields + "\n" + help + "\n" + note
@@ -994,4 +1038,113 @@ func RenderSiteEnvVarsWithZones(s *state.AppState, zm *zone.Manager) string {
 	help := helpStyle.Render("\nTab: switch field • Up/Down: navigate pairs • +/-: add/remove • Enter: save • Esc: back")
 
 	return title + "\n\n" + envSection + "\n" + help
+}
+
+// getCredentialDisplayName returns the display name for a credential ID
+func getCredentialDisplayName(s *state.AppState, credentialID string) string {
+	if credentialID == "" {
+		return "(None - Public Image)"
+	}
+
+	for _, cred := range s.DockerCredentials {
+		if cred.ID.String() == credentialID {
+			return fmt.Sprintf("%s (%s)", cred.Name, cred.Registry)
+		}
+	}
+
+	return "(Unknown credential)"
+}
+
+// renderCredentialDropdown renders the credential selection dropdown
+func renderCredentialDropdown(s *state.AppState) string {
+	var options strings.Builder
+	options.WriteString("     ┌─────────────────────────────────┐\n")
+
+	// First option is always "None - Public Image"
+	if s.DropdownIndex == 0 {
+		options.WriteString("     │ ▶ (None - Public Image)        │\n")
+	} else {
+		options.WriteString("     │   (None - Public Image)        │\n")
+	}
+
+	// Then list all credentials
+	for i, cred := range s.DockerCredentials {
+		displayName := fmt.Sprintf("%s (%s)", cred.Name, cred.Registry)
+		if len(displayName) > 29 {
+			displayName = displayName[:26] + "..."
+		}
+
+		// +1 because index 0 is "None"
+		if i+1 == s.DropdownIndex {
+			options.WriteString(fmt.Sprintf("     │ ▶ %-29s │\n", displayName))
+		} else {
+			options.WriteString(fmt.Sprintf("     │   %-29s │\n", displayName))
+		}
+	}
+
+	options.WriteString("     └─────────────────────────────────┘")
+
+	totalOptions := len(s.DockerCredentials) + 1 // +1 for "None"
+	if totalOptions > 1 {
+		options.WriteString(fmt.Sprintf(" (%d/%d)", s.DropdownIndex+1, totalOptions))
+	}
+
+	return options.String()
+}
+
+// RenderSiteDeleteConfirm renders the site deletion confirmation dialog
+func RenderSiteDeleteConfirm(s *state.AppState, zm *zone.Manager) string {
+	// Dialog styling
+	dialogStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#FF0000")).
+		Padding(1, 2).
+		Width(60)
+
+	warningStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FF0000")).
+		Bold(true)
+
+	labelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#AAAAAA"))
+
+	inputStyle := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#7C3AED")).
+		Padding(0, 1).
+		Width(50)
+
+	// Build the dialog content
+	title := warningStyle.Render("⚠️  DELETE CONFIRMATION")
+
+	message := fmt.Sprintf(
+		"\nYou are about to delete the %s:\n\n  %s\n\nThis action cannot be undone.",
+		s.DeletionTargetType,
+		warningStyle.Render(s.DeletionTargetName),
+	)
+
+	prompt := labelStyle.Render("\nType the name to confirm:")
+	input := inputStyle.Render(s.DeletionConfirmInput + "█")
+
+	help := helpStyle.Render("\nEnter: confirm • Esc: cancel")
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		message,
+		prompt,
+		input,
+		help,
+	)
+
+	dialog := dialogStyle.Render(content)
+
+	// Center the dialog on screen
+	return lipgloss.Place(
+		s.WindowWidth,
+		s.WindowHeight-6, // Account for header, tabs, and status bar
+		lipgloss.Center,
+		lipgloss.Center,
+		dialog,
+	)
 }

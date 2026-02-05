@@ -10,10 +10,11 @@ import (
 type NodeClient interface {
 	// Site deployment operations
 	DeploySite(endpoint, apiKey string, site *models.Site, domainName string) error
+	UpdateSite(endpoint, apiKey string, siteID uuid.UUID, dockerUsername, dockerToken string) error
 	DeleteSite(endpoint, apiKey string, siteID uuid.UUID, domain, siteName string, siteType models.SiteType) error
 	GetSiteStatus(endpoint, apiKey string, siteID uuid.UUID, siteName string, siteType models.SiteType) (*models.SiteStatus, error)
 	StopSite(endpoint, apiKey string, siteID uuid.UUID, siteName string, siteType models.SiteType) error
-	RestartSite(endpoint, apiKey string, siteID uuid.UUID) error
+	RestartSite(endpoint, apiKey string, siteID uuid.UUID, pullLatest bool, dockerUsername, dockerToken string) error
 
 	// Node health and monitoring
 	HealthCheck(endpoint, apiKey string) (*HealthResponse, error)
@@ -43,8 +44,9 @@ type Docker struct {
 }
 
 type DockerCredentials struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
+	Encrypted bool   `json:"encrypted,omitempty"` // True if credentials are encrypted with KDF
 }
 
 // HealthResponse contains node health information
@@ -77,3 +79,4 @@ type ErrorResponse struct {
 	Code    string `json:"code"`
 	Details string `json:"details,omitempty"`
 }
+

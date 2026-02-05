@@ -12,9 +12,124 @@ import (
 	"github.com/BlueBeard63/archon-node/internal/config"
 )
 
+const (
+	defaultConfigPath = "/etc/archon/node-config.toml"
+)
+
 func main() {
+	// Check if we have a subcommand
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "configure":
+			handleConfigure(os.Args[2:])
+			return
+		case "help", "-h", "--help":
+			printUsage()
+			return
+		case "version", "-v", "--version":
+			fmt.Println("archon-node version 1.0.0")
+			return
+		}
+	}
+
+	// Default: run server
+	runServer()
+}
+
+func printUsage() {
+	fmt.Print(`Usage: archon-node [command] [options]
+
+Commands:
+  configure   Fetch configuration from a remote URL
+  help        Show this help message
+  version     Show version information
+
+Server Mode (default):
+  archon-node [options]
+    -config string  Path to configuration file (default "/etc/archon/node-config.toml")
+
+Configure Mode:
+  archon-node configure [options]
+    --from-url string   URL to fetch configuration from (pastebin-style)
+    --from-file string  Path to local configuration file
+    --output string     Path to save configuration (default "/etc/archon/node-config.toml")
+
+Examples:
+  # Start the node server
+  archon-node
+
+  # Start with custom config path
+  archon-node -config /path/to/config.toml
+
+  # Configure from remote URL (quick configure)
+  archon-node configure --from-url https://master-node:8080/api/v1/configs/abc123
+
+  # Configure from local file
+  archon-node configure --from-file /tmp/config.toml
+`)
+}
+
+func handleConfigure(args []string) {
+	configureCmd := flag.NewFlagSet("configure", flag.ExitOnError)
+	fromURL := configureCmd.String("from-url", "", "URL to fetch configuration from")
+	fromFile := configureCmd.String("from-file", "", "Path to local configuration file")
+	outputPath := configureCmd.String("output", defaultConfigPath, "Path to save configuration")
+
+	if err := configureCmd.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Validate flags
+	if *fromURL == "" && *fromFile == "" {
+		fmt.Fprintf(os.Stderr, "Error: Either --from-url or --from-file must be specified\n")
+		configureCmd.Usage()
+		os.Exit(1)
+	}
+
+	if *fromURL != "" && *fromFile != "" {
+		fmt.Fprintf(os.Stderr, "Error: Cannot specify both --from-url and --from-file\n")
+		os.Exit(1)
+	}
+
+	if *fromURL != "" {
+		// Fetch config from URL
+		fmt.Printf("Fetching configuration from: %s\n", *fromURL)
+		cfg, err := config.FetchConfigFromURL(*fromURL, *outputPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to fetch configuration: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Configuration saved to: %s\n", *outputPath)
+		fmt.Printf("Server will listen on %s:%d\n", cfg.Server.Host, cfg.Server.Port)
+	} else {
+		// Copy from local file
+		fmt.Printf("Copying configuration from: %s\n", *fromFile)
+
+		// Load and validate the config
+		cfg, err := config.Load(*fromFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Save to output path
+		if err := config.Save(*outputPath, cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to save configuration: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Configuration saved to: %s\n", *outputPath)
+		fmt.Printf("Server will listen on %s:%d\n", cfg.Server.Host, cfg.Server.Port)
+	}
+
+	fmt.Println("\nTo start the node, run:")
+	fmt.Printf("  archon-node -config %s\n", *outputPath)
+}
+
+func runServer() {
 	// Parse command line flags
-	configPath := flag.String("config", "/etc/archon/node-config.toml", "Path to configuration file")
+	configPath := flag.String("config", defaultConfigPath, "Path to configuration file")
 	flag.Parse()
 
 	// Load configuration
