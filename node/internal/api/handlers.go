@@ -49,18 +49,36 @@ func NewHandlers(
 func (h *Handlers) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	var dockerInfo *models.DockerInfo
+	var traefikInfo *models.TraefikInfo
+	dockerHealthy := false
+	proxyHealthy := false
+
 	// Get Docker info
-	dockerInfo, err := h.dockerClient.GetDockerInfo(ctx)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to get Docker info")
-		return
+	if info, err := h.dockerClient.GetDockerInfo(ctx); err == nil {
+		dockerInfo = info
+		dockerHealthy = true
 	}
 
 	// Get proxy info
-	traefikInfo, _ := h.proxyManager.GetInfo(ctx)
+	if info, err := h.proxyManager.GetInfo(ctx); err == nil {
+		traefikInfo = info
+		proxyHealthy = true
+	}
+
+	// Determine status based on component health
+	// - online: both Docker and proxy are healthy
+	// - degraded: one of Docker or proxy is down
+	// - offline: both Docker and proxy are down
+	status := "offline"
+	if dockerHealthy && proxyHealthy {
+		status = "online"
+	} else if dockerHealthy || proxyHealthy {
+		status = "degraded"
+	}
 
 	response := models.HealthResponse{
-		Status:  "healthy",
+		Status:  status,
 		Docker:  dockerInfo,
 		Traefik: traefikInfo,
 	}

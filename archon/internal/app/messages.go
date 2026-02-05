@@ -261,3 +261,10 @@ type AsyncResultMsg struct {
 
 // TickMsg is sent periodically for background tasks
 type TickMsg struct{}
+
+// SiteStatusCheckResultMsg is returned after checking a site's status
+type SiteStatusCheckResultMsg struct {
+	SiteID uuid.UUID
+	Status string // "running", "stopped", "failed", etc.
+	Error  error
+}

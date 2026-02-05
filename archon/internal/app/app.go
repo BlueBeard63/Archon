@@ -50,6 +50,7 @@ func NewModel(configPath string) (*Model, error) {
 	appState.CloudflareAPIToken = cfg.Settings.CloudflareAPIToken
 	appState.Route53AccessKey = cfg.Settings.Route53AccessKey
 	appState.Route53SecretKey = cfg.Settings.Route53SecretKey
+	appState.HealthCheckIntervalSecs = cfg.Settings.HealthCheckIntervalSecs
 
 	return &Model{
 		state:        appState,
@@ -63,10 +64,14 @@ func NewModel(configPath string) (*Model, error) {
 // Init is called once when the program starts (TEA pattern)
 // Returns initial commands to run
 func (m Model) Init() tea.Cmd {
+	// Get health check interval
+	interval := GetHealthCheckInterval(m.state.HealthCheckIntervalSecs)
+
 	// Return batch of initialization commands
 	return tea.Batch(
-		tea.EnterAltScreen,        // Enable alternate screen buffer
-		tea.EnableMouseCellMotion, // MOUSE SUPPORT: Enable mouse events
+		tea.EnterAltScreen,            // Enable alternate screen buffer
+		tea.EnableMouseCellMotion,     // MOUSE SUPPORT: Enable mouse events
+		StartHealthCheckTicker(interval), // Start background health check ticker
 	)
 }
 
@@ -594,6 +599,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case NotificationMsg:
 		m.state.AddNotification(msg.Message, msg.Level)
+		return m, nil
+
+	case TickMsg:
+		// Perform health checks for all nodes and status checks for all sites
+		var cmds []tea.Cmd
+
+		// Add health checks for all nodes
+		nodeHealthCmds := PerformNodeHealthChecks(m.state.Nodes, m.nodeClient)
+		cmds = append(cmds, nodeHealthCmds...)
+
+		// Add status checks for all running/stopped sites
+		siteStatusCmds := PerformSiteStatusChecks(m.state.Sites, m.state.Nodes, m.nodeClient)
+		cmds = append(cmds, siteStatusCmds...)
+
+		// Restart the ticker for the next interval
+		interval := GetHealthCheckInterval(m.state.HealthCheckIntervalSecs)
+		cmds = append(cmds, StartHealthCheckTicker(interval))
+
+		return m, tea.Batch(cmds...)
+
+	case SiteStatusCheckResultMsg:
+		// Update site status based on check result
+		if msg.Error == nil && msg.Status != "" {
+			for i := range m.state.Sites {
+				if m.state.Sites[i].ID == msg.SiteID {
+					m.state.Sites[i].Status = models.SiteStatus(msg.Status)
+					break
+				}
+			}
+		}
 		return m, nil
 
 	case QuitMsg:

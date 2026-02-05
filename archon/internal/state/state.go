@@ -101,12 +101,13 @@ type AppState struct {
 	WindowHeight int `json:"window_height"`
 
 	// Configuration
-	ConfigPath         string `json:"config_path"`
-	AutoSave           bool   `json:"auto_save"`
-	ShouldQuit         bool   `json:"should_quit"`
-	CloudflareAPIToken string `json:"cloudflare_api_token"` // Global default, can be overridden per-domain
-	Route53AccessKey   string `json:"route53_access_key"`   // Global default, can be overridden per-domain
-	Route53SecretKey   string `json:"route53_secret_key"`   // Global default, can be overridden per-domain
+	ConfigPath              string `json:"config_path"`
+	AutoSave                bool   `json:"auto_save"`
+	ShouldQuit              bool   `json:"should_quit"`
+	CloudflareAPIToken      string `json:"cloudflare_api_token"`       // Global default, can be overridden per-domain
+	Route53AccessKey        string `json:"route53_access_key"`         // Global default, can be overridden per-domain
+	Route53SecretKey        string `json:"route53_secret_key"`         // Global default, can be overridden per-domain
+	HealthCheckIntervalSecs int    `json:"health_check_interval_secs"` // Interval for automatic health checks
 }
 
 // EnvVarPair represents a single environment variable key-value pair
