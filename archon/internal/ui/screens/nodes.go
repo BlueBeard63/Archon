@@ -94,6 +94,13 @@ func RenderNodesListWithZones(s *state.AppState, zm *zone.Manager) string {
 				Border:  false,
 				Icon:    true,
 			}
+			quickConfigBtn := components.Button{
+				ID:      "quick-config-node-" + node.ID.String(),
+				Label:   "🔗",
+				Primary: false,
+				Border:  false,
+				Icon:    true,
+			}
 			deleteBtn := components.Button{
 				ID:      "delete-node-" + node.ID.String(),
 				Label:   "🗑️",
@@ -104,9 +111,9 @@ func RenderNodesListWithZones(s *state.AppState, zm *zone.Manager) string {
 
 			var actionLine string
 			if zm != nil {
-				actionLine = viewBtn.RenderWithZone(zm) + " " + editBtn.RenderWithZone(zm) + " " + deleteBtn.RenderWithZone(zm)
+				actionLine = viewBtn.RenderWithZone(zm) + " " + editBtn.RenderWithZone(zm) + " " + quickConfigBtn.RenderWithZone(zm) + " " + deleteBtn.RenderWithZone(zm)
 			} else {
-				actionLine = viewBtn.Render() + " " + editBtn.Render() + " " + deleteBtn.Render()
+				actionLine = viewBtn.Render() + " " + editBtn.Render() + " " + quickConfigBtn.Render() + " " + deleteBtn.Render()
 			}
 
 			actionsColumn.WriteString(actionLine + "\n")
@@ -139,7 +146,7 @@ func RenderNodesListWithZones(s *state.AppState, zm *zone.Manager) string {
 		}
 	}
 
-	help := helpStyle.Render("\n\nPress j/k or arrows to navigate • e to edit • d to delete • enter to view • n to create • Esc to go back")
+	help := helpStyle.Render("\n\nPress j/k or arrows to navigate • e to edit • d to delete • enter to view • q to quick config • n to create • R to refresh • Esc to go back")
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,

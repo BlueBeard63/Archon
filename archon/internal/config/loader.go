@@ -57,6 +57,19 @@ func (f *FileConfigLoader) Load(path string) (*Config, error) {
 		config.Settings = DefaultSettings()
 	}
 
+	// Run migrations if needed
+	migrated, err := MigrateConfig(&config, path)
+	if err != nil {
+		return nil, err
+	}
+
+	// If migrations were applied, save the config
+	if migrated {
+		if err := f.Save(path, &config); err != nil {
+			return nil, err
+		}
+	}
+
 	return &config, nil
 }
 
@@ -70,11 +83,12 @@ func (f *FileConfigLoader) Save(path string, config *Config) error {
 
 	// Create a copy of config without sites and nodes (stored separately)
 	legacyConfig := Config{
-		Version:  config.Version,
-		Sites:    []models.Site{},    // Empty - stored in directories
-		Domains:  config.Domains,      // Keep in main config
-		Nodes:    []models.Node{},     // Empty - stored in directories
-		Settings: config.Settings,
+		Version:          config.Version,
+		MigrationVersion: config.MigrationVersion,
+		Sites:            []models.Site{},   // Empty - stored in directories
+		Domains:          config.Domains,    // Keep in main config
+		Nodes:            []models.Node{},   // Empty - stored in directories
+		Settings:         config.Settings,
 	}
 
 	// Save main config file (domains and settings only)

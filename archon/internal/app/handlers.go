@@ -116,6 +116,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state.CurrentScreen == state.ScreenNodeEdit ||
 		m.state.CurrentScreen == state.ScreenNodeConfigSave ||
 		m.state.CurrentScreen == state.ScreenSettings ||
+		m.state.CurrentScreen == state.ScreenDockerCredentialCreate ||
+		m.state.CurrentScreen == state.ScreenDockerCredentialEdit ||
 		m.state.CurrentScreen == state.ScreenSiteDeleteConfirm
 
 	// Critical global key bindings (work on all screens)
@@ -183,6 +185,12 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNodeEditKeys(msg)
 	case state.ScreenSettings:
 		return m.handleSettingsKeys(msg)
+	case state.ScreenDockerCredentialsList:
+		return m.handleDockerCredentialsListKeys(msg)
+	case state.ScreenDockerCredentialCreate:
+		return m.handleDockerCredentialCreateKeys(msg)
+	case state.ScreenDockerCredentialEdit:
+		return m.handleDockerCredentialEditKeys(msg)
 	case state.ScreenNodeConfig:
 		return m.handleNodeConfigKeys(msg)
 	case state.ScreenNodeConfigSave:
@@ -289,6 +297,10 @@ func (m Model) handleSitesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.spawnSetupDNS(site.ID)
 		}
 		return m, nil
+
+	case "R":
+		// Force refresh all nodes and sites status
+		return m, func() tea.Msg { return ForceRefreshMsg{} }
 	}
 
 	return m, nil
@@ -296,20 +308,21 @@ func (m Model) handleSitesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleSiteCreateKeys handles keys on the site creation form
 func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Check if we're on a dropdown field (SiteType=-1, Node=1)
+	// Check if we're on a dropdown field (SiteType=-1, Node=1, DockerCredential=3)
 	isSiteTypeField := m.state.CurrentFieldIndex == -1
 	isNodeField := m.state.CurrentFieldIndex == 1
-	isDropdownField := isSiteTypeField || isNodeField
+	isCredentialField := m.state.CurrentFieldIndex == 3 && m.state.SiteTypeSelection != "compose"
+	isDropdownField := isSiteTypeField || isNodeField || isCredentialField
 
 	// Helper to get next visible field index (skips hidden fields based on site type)
 	getNextVisibleField := func(current int) int {
 		isCompose := m.state.SiteTypeSelection == "compose"
 		next := current + 1
 
-		// For compose mode: skip fields 3 (docker username), 4 (docker token), 6 (config file)
+		// For compose mode: skip fields 3 (docker credential), 5 (config file)
 		// For container mode: all fields are visible
 		for next < len(m.state.FormFields) {
-			if isCompose && (next == 3 || next == 4 || next == 6) {
+			if isCompose && (next == 3 || next == 5) {
 				next++
 				continue
 			}
@@ -328,9 +341,9 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		isCompose := m.state.SiteTypeSelection == "compose"
 		prev := current - 1
 
-		// For compose mode: skip fields 6, 4, 3
+		// For compose mode: skip fields 5, 3
 		for prev >= 0 {
-			if isCompose && (prev == 3 || prev == 4 || prev == 6) {
+			if isCompose && (prev == 3 || prev == 5) {
 				prev--
 				continue
 			}
@@ -358,6 +371,8 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			var maxIndex int
 			if isSiteTypeField {
 				maxIndex = 1 // Container, Compose
+			} else if isCredentialField {
+				maxIndex = len(m.state.DockerCredentials) // +1 for "None" option, -1 for 0-indexed = same as length
 			} else {
 				maxIndex = len(m.state.Nodes) - 1
 			}
@@ -374,6 +389,13 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.state.SiteTypeSelection = "container"
 				} else {
 					m.state.SiteTypeSelection = "compose"
+				}
+			} else if isCredentialField {
+				// Docker credential selection (index 0 = None, 1+ = credentials)
+				if m.state.DropdownIndex == 0 {
+					m.state.FormFields[3] = "" // None
+				} else if m.state.DropdownIndex-1 < len(m.state.DockerCredentials) {
+					m.state.FormFields[3] = m.state.DockerCredentials[m.state.DropdownIndex-1].ID.String()
 				}
 			} else if len(m.state.Nodes) > 0 {
 				m.state.FormFields[1] = m.state.Nodes[m.state.DropdownIndex].Name
@@ -399,12 +421,12 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case tea.KeyBackspace, tea.KeyRunes, tea.KeySpace:
-			// Close dropdown and allow manual input (not for site type - it's a fixed dropdown)
-			if !isSiteTypeField {
+			// Close dropdown and allow manual input (not for site type or credential - they're fixed dropdowns)
+			if !isSiteTypeField && !isCredentialField {
 				m.state.DropdownOpen = false
 			}
-			// Fall through to normal input handling for node field
-			if isSiteTypeField {
+			// Fall through to normal input handling for node field only
+			if isSiteTypeField || isCredentialField {
 				return m, nil
 			}
 		}
@@ -434,22 +456,22 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeySpace:
-		// Add space to current field (not site type)
-		if m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) {
+		// Add space to current field (not site type or credential)
+		if m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) && !isCredentialField {
 			m.state.FormFields[m.state.CurrentFieldIndex] += " "
 		}
 		return m, nil
 
 	case tea.KeyRunes:
-		// Add character to current field (not site type)
-		if m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) {
+		// Add character to current field (not site type or credential)
+		if m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) && !isCredentialField {
 			m.state.FormFields[m.state.CurrentFieldIndex] += string(msg.Runes)
 		}
 		return m, nil
 
 	case tea.KeyBackspace:
-		// Remove last character from current field (not site type)
-		if m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) {
+		// Remove last character from current field (not site type or credential)
+		if m.state.CurrentFieldIndex >= 0 && m.state.CurrentFieldIndex < len(m.state.FormFields) && !isCredentialField {
 			value := m.state.FormFields[m.state.CurrentFieldIndex]
 			if len(value) > 0 {
 				m.state.FormFields[m.state.CurrentFieldIndex] = value[:len(value)-1]
@@ -505,8 +527,52 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleSiteEditKeys handles keys on the site edit form
 func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Check if we're on a dropdown field (Node=1 in new layout)
-	isDropdownField := m.state.CurrentFieldIndex == 1
+	// Get site to check if it's compose
+	site := m.state.GetSiteByID(m.state.SelectedSiteID)
+	isCompose := site != nil && site.GetSiteType() == models.SiteTypeCompose
+
+	// Check if we're on a dropdown field (Node=1, DockerCredential=3)
+	isNodeField := m.state.CurrentFieldIndex == 1
+	isCredentialField := m.state.CurrentFieldIndex == 3 && !isCompose
+	isDropdownField := isNodeField || isCredentialField
+
+	// Helper to get next visible field index (skips hidden fields based on site type)
+	getNextVisibleField := func(current int) int {
+		next := current + 1
+
+		// For compose mode: skip fields 3 (docker credential), 5 (config file)
+		for next < len(m.state.FormFields) {
+			if isCompose && (next == 3 || next == 5) {
+				next++
+				continue
+			}
+			break
+		}
+
+		if next >= len(m.state.FormFields) {
+			return 200 // Move to domain mapping section
+		}
+		return next
+	}
+
+	// Helper to get previous visible field index
+	getPrevVisibleField := func(current int) int {
+		prev := current - 1
+
+		// For compose mode: skip fields 5, 3
+		for prev >= 0 {
+			if isCompose && (prev == 3 || prev == 5) {
+				prev--
+				continue
+			}
+			break
+		}
+
+		if prev < 0 {
+			return 0 // Stay at first field
+		}
+		return prev
+	}
 
 	// Handle dropdown-specific keys when dropdown is open
 	if m.state.DropdownOpen && isDropdownField {
@@ -520,7 +586,12 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyDown:
 			// Navigate down in dropdown
-			maxIndex := len(m.state.Nodes) - 1
+			var maxIndex int
+			if isCredentialField {
+				maxIndex = len(m.state.DockerCredentials) // +1 for "None" option, -1 for 0-indexed = same as length
+			} else {
+				maxIndex = len(m.state.Nodes) - 1
+			}
 			if m.state.DropdownIndex < maxIndex {
 				m.state.DropdownIndex++
 			}
@@ -528,14 +599,28 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyEnter, tea.KeyTab:
 			// Confirm selection and close dropdown
-			if len(m.state.Nodes) > 0 {
+			if isCredentialField {
+				// Docker credential selection (index 0 = None, 1+ = credentials)
+				if m.state.DropdownIndex == 0 {
+					m.state.FormFields[3] = "" // None
+				} else if m.state.DropdownIndex-1 < len(m.state.DockerCredentials) {
+					m.state.FormFields[3] = m.state.DockerCredentials[m.state.DropdownIndex-1].ID.String()
+				}
+			} else if len(m.state.Nodes) > 0 {
 				m.state.FormFields[1] = m.state.Nodes[m.state.DropdownIndex].Name
 			}
 			m.state.DropdownOpen = false
 
 			// If Tab, move to next field
 			if msg.Type == tea.KeyTab {
-				m.state.CurrentFieldIndex++
+				m.state.CurrentFieldIndex = getNextVisibleField(m.state.CurrentFieldIndex)
+				if m.state.CurrentFieldIndex == 200 {
+					m.state.DomainMappingFocusedPair = 0
+					m.state.DomainMappingFocusedField = 0
+					if len(m.state.DomainMappingPairs) > 0 {
+						m.state.CursorPosition = len(m.state.DomainMappingPairs[0].Subdomain)
+					}
+				}
 			}
 			return m, nil
 
@@ -545,9 +630,14 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case tea.KeyBackspace, tea.KeyRunes, tea.KeySpace:
-			// Close dropdown and allow manual input
-			m.state.DropdownOpen = false
-			// Fall through to normal input handling
+			// Close dropdown and allow manual input (not for credential - it's a fixed dropdown)
+			if !isCredentialField {
+				m.state.DropdownOpen = false
+			}
+			// Fall through to normal input handling for node field only
+			if isCredentialField {
+				return m, nil
+			}
 		}
 	}
 
@@ -575,8 +665,8 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeySpace:
-		// Add space to current field
-		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+		// Add space to current field (not credential)
+		if m.state.CurrentFieldIndex < len(m.state.FormFields) && !isCredentialField {
 			m.state.FormFields[m.state.CurrentFieldIndex] += " "
 		}
 		return m, nil
@@ -584,7 +674,6 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyRunes:
 		// Handle 'v' key to navigate to ENV vars screen (container sites only)
 		if string(msg.Runes) == "v" {
-			site := m.state.GetSiteByID(m.state.SelectedSiteID)
 			if site != nil && site.GetSiteType() != models.SiteTypeCompose {
 				m.state.EnvVarPairs = []state.EnvVarPair{} // Clear to trigger reload
 				m.state.CurrentFieldIndex = 100            // Set focus to ENV vars section
@@ -592,15 +681,15 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		// Add character to current field
-		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+		// Add character to current field (not credential)
+		if m.state.CurrentFieldIndex < len(m.state.FormFields) && !isCredentialField {
 			m.state.FormFields[m.state.CurrentFieldIndex] += string(msg.Runes)
 		}
 		return m, nil
 
 	case tea.KeyBackspace:
-		// Remove last character from current field
-		if m.state.CurrentFieldIndex < len(m.state.FormFields) {
+		// Remove last character from current field (not credential)
+		if m.state.CurrentFieldIndex < len(m.state.FormFields) && !isCredentialField {
 			value := m.state.FormFields[m.state.CurrentFieldIndex]
 			if len(value) > 0 {
 				m.state.FormFields[m.state.CurrentFieldIndex] = value[:len(value)-1]
@@ -613,14 +702,14 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.state.DropdownOpen {
 			m.state.DropdownOpen = false
 		}
-		// Move to next field or domain mapping section
-		m.state.CurrentFieldIndex++
-		if m.state.CurrentFieldIndex >= len(m.state.FormFields) {
-			// Move to domain mapping section
-			m.state.CurrentFieldIndex = 200
+		// Move to next visible field
+		m.state.CurrentFieldIndex = getNextVisibleField(m.state.CurrentFieldIndex)
+		if m.state.CurrentFieldIndex == 200 {
 			m.state.DomainMappingFocusedPair = 0
 			m.state.DomainMappingFocusedField = 0
-			m.state.CursorPosition = len(m.state.DomainMappingPairs[0].Subdomain)
+			if len(m.state.DomainMappingPairs) > 0 {
+				m.state.CursorPosition = len(m.state.DomainMappingPairs[0].Subdomain)
+			}
 		}
 		return m, nil
 
@@ -629,11 +718,8 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.state.DropdownOpen {
 			m.state.DropdownOpen = false
 		}
-		// Move to previous field
-		m.state.CurrentFieldIndex--
-		if m.state.CurrentFieldIndex < 0 {
-			m.state.CurrentFieldIndex = len(m.state.FormFields) - 1
-		}
+		// Move to previous visible field
+		m.state.CurrentFieldIndex = getPrevVisibleField(m.state.CurrentFieldIndex)
 		return m, nil
 
 	case tea.KeyEnter:
@@ -1425,7 +1511,22 @@ func (m Model) handleNodesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Edit selected node
 		if len(m.state.Nodes) > 0 && m.state.NodesListIndex >= 0 && m.state.NodesListIndex < len(m.state.Nodes) {
 			node := m.state.Nodes[m.state.NodesListIndex]
-			m.state.AddNotification("Edit node: "+node.Name+" (not yet implemented)", "info")
+			m.state.SelectedNodeID = node.ID
+			m.state.NavigateTo(state.ScreenNodeEdit)
+		}
+		return m, nil
+
+	case "q":
+		// Quick configure selected node (upload config to dpaste for sharing)
+		if len(m.state.Nodes) > 0 && m.state.NodesListIndex >= 0 && m.state.NodesListIndex < len(m.state.Nodes) {
+			node := m.state.Nodes[m.state.NodesListIndex]
+			m.state.SelectedNodeID = node.ID
+			// Reset quick config state
+			m.state.QuickConfigURL = ""
+			m.state.QuickConfigExpiresAt = ""
+			m.state.QuickConfigNodeID = uuid.Nil
+			m.state.QuickConfigHealthConfirmed = false
+			m.state.NavigateTo(state.ScreenNodeQuickConfig)
 		}
 		return m, nil
 
@@ -1436,6 +1537,10 @@ func (m Model) handleNodesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.handleDeleteNode(node.ID)
 		}
 		return m, nil
+
+	case "R":
+		// Force refresh all nodes and sites status
+		return m, func() tea.Msg { return ForceRefreshMsg{} }
 	}
 
 	return m, nil
@@ -1964,8 +2069,243 @@ func (m Model) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleHelpKeys handles keys on the help screen
-func (m Model) handleHelpKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleHelpKeys(_ tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Help screen is mostly static, just allow navigation back
+	return m, nil
+}
+
+// ============================================================================
+// Docker Credentials Handlers
+// ============================================================================
+
+// handleDockerCredentialsListKeys handles keys on the Docker credentials list screen
+func (m Model) handleDockerCredentialsListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "n", "c":
+		// Create new credential
+		m.state.NavigateTo(state.ScreenDockerCredentialCreate)
+		return m, nil
+
+	case "e", "enter":
+		// Edit selected credential
+		if len(m.state.DockerCredentials) > 0 && m.state.DockerCredentialsListIndex >= 0 && m.state.DockerCredentialsListIndex < len(m.state.DockerCredentials) {
+			cred := m.state.DockerCredentials[m.state.DockerCredentialsListIndex]
+			m.state.SelectedDockerCredentialID = cred.ID
+			m.state.NavigateTo(state.ScreenDockerCredentialEdit)
+		}
+		return m, nil
+
+	case "d":
+		// Delete selected credential
+		if len(m.state.DockerCredentials) > 0 && m.state.DockerCredentialsListIndex >= 0 && m.state.DockerCredentialsListIndex < len(m.state.DockerCredentials) {
+			cred := m.state.DockerCredentials[m.state.DockerCredentialsListIndex]
+			return m.handleDeleteDockerCredential(cred.ID)
+		}
+		return m, nil
+
+	case "up", "k":
+		if m.state.DockerCredentialsListIndex > 0 {
+			m.state.DockerCredentialsListIndex--
+			if m.state.DockerCredentialsTable != nil {
+				m.state.DockerCredentialsTable.SetCursor(m.state.DockerCredentialsListIndex)
+			}
+		}
+		return m, nil
+
+	case "down", "j":
+		if m.state.DockerCredentialsListIndex < len(m.state.DockerCredentials)-1 {
+			m.state.DockerCredentialsListIndex++
+			if m.state.DockerCredentialsTable != nil {
+				m.state.DockerCredentialsTable.SetCursor(m.state.DockerCredentialsListIndex)
+			}
+		}
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// handleDockerCredentialCreateKeys handles keys on the credential creation form
+func (m Model) handleDockerCredentialCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Try text input with cursor support first
+	if m.handleTextInput(msg, m.state.CurrentFieldIndex) {
+		return m, nil
+	}
+
+	// Handle non-text-input keys
+	switch msg.Type {
+	case tea.KeyTab:
+		// Move to next field
+		nextField := (m.state.CurrentFieldIndex + 1) % 4
+		m.setFieldAndResetCursor(nextField)
+		return m, nil
+
+	case tea.KeyShiftTab:
+		// Move to previous field
+		prevField := m.state.CurrentFieldIndex - 1
+		if prevField < 0 {
+			prevField = 3
+		}
+		m.setFieldAndResetCursor(prevField)
+		return m, nil
+
+	case tea.KeyEnter:
+		// Submit form
+		return m.handleDockerCredentialCreateSubmit()
+	}
+
+	return m, nil
+}
+
+// handleDockerCredentialEditKeys handles keys on the credential edit form
+func (m Model) handleDockerCredentialEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Try text input with cursor support first
+	if m.handleTextInput(msg, m.state.CurrentFieldIndex) {
+		return m, nil
+	}
+
+	// Handle non-text-input keys
+	switch msg.Type {
+	case tea.KeyTab:
+		// Move to next field
+		nextField := (m.state.CurrentFieldIndex + 1) % 4
+		m.setFieldAndResetCursor(nextField)
+		return m, nil
+
+	case tea.KeyShiftTab:
+		// Move to previous field
+		prevField := m.state.CurrentFieldIndex - 1
+		if prevField < 0 {
+			prevField = 3
+		}
+		m.setFieldAndResetCursor(prevField)
+		return m, nil
+
+	case tea.KeyEnter:
+		// Submit form
+		return m.handleDockerCredentialEditSubmit()
+	}
+
+	return m, nil
+}
+
+// handleDockerCredentialCreateSubmit handles form submission for creating a credential
+func (m Model) handleDockerCredentialCreateSubmit() (tea.Model, tea.Cmd) {
+	if len(m.state.FormFields) < 4 {
+		m.state.AddNotification("Invalid form data", "error")
+		return m, nil
+	}
+
+	name := strings.TrimSpace(m.state.FormFields[0])
+	registry := strings.TrimSpace(m.state.FormFields[1])
+	username := strings.TrimSpace(m.state.FormFields[2])
+	token := m.state.FormFields[3]
+
+	// Validate required fields
+	if name == "" {
+		m.state.AddNotification("Name is required", "error")
+		return m, nil
+	}
+	if registry == "" {
+		m.state.AddNotification("Registry is required", "error")
+		return m, nil
+	}
+	if username == "" {
+		m.state.AddNotification("Username is required", "error")
+		return m, nil
+	}
+	if token == "" {
+		m.state.AddNotification("Token/Password is required", "error")
+		return m, nil
+	}
+
+	// Create new credential
+	cred := state.DockerCredential{
+		ID:       uuid.New(),
+		Name:     name,
+		Registry: registry,
+		Username: username,
+		Token:    token,
+	}
+
+	m.state.DockerCredentials = append(m.state.DockerCredentials, cred)
+	m.state.AddNotification("Docker credential '"+name+"' created", "success")
+	m.state.NavigateBack()
+
+	// Auto-save if enabled
+	if m.state.AutoSave {
+		return m, m.saveConfig()
+	}
+
+	return m, nil
+}
+
+// handleDockerCredentialEditSubmit handles form submission for editing a credential
+func (m Model) handleDockerCredentialEditSubmit() (tea.Model, tea.Cmd) {
+	if len(m.state.FormFields) < 4 {
+		m.state.AddNotification("Invalid form data", "error")
+		return m, nil
+	}
+
+	name := strings.TrimSpace(m.state.FormFields[0])
+	registry := strings.TrimSpace(m.state.FormFields[1])
+	username := strings.TrimSpace(m.state.FormFields[2])
+	token := m.state.FormFields[3]
+
+	// Validate required fields
+	if name == "" {
+		m.state.AddNotification("Name is required", "error")
+		return m, nil
+	}
+	if registry == "" {
+		m.state.AddNotification("Registry is required", "error")
+		return m, nil
+	}
+
+	// Find and update the credential
+	for i := range m.state.DockerCredentials {
+		if m.state.DockerCredentials[i].ID == m.state.SelectedDockerCredentialID {
+			m.state.DockerCredentials[i].Name = name
+			m.state.DockerCredentials[i].Registry = registry
+			m.state.DockerCredentials[i].Username = username
+			m.state.DockerCredentials[i].Token = token
+			break
+		}
+	}
+
+	m.state.AddNotification("Docker credential '"+name+"' updated", "success")
+	m.state.NavigateBack()
+
+	// Auto-save if enabled
+	if m.state.AutoSave {
+		return m, m.saveConfig()
+	}
+
+	return m, nil
+}
+
+// handleDeleteDockerCredential deletes a Docker credential
+func (m Model) handleDeleteDockerCredential(id uuid.UUID) (tea.Model, tea.Cmd) {
+	// Find and remove the credential
+	for i := range m.state.DockerCredentials {
+		if m.state.DockerCredentials[i].ID == id {
+			name := m.state.DockerCredentials[i].Name
+			m.state.DockerCredentials = append(m.state.DockerCredentials[:i], m.state.DockerCredentials[i+1:]...)
+			m.state.AddNotification("Docker credential '"+name+"' deleted", "success")
+
+			// Adjust list index if needed
+			if m.state.DockerCredentialsListIndex >= len(m.state.DockerCredentials) && m.state.DockerCredentialsListIndex > 0 {
+				m.state.DockerCredentialsListIndex--
+			}
+
+			// Auto-save if enabled
+			if m.state.AutoSave {
+				return m, m.saveConfig()
+			}
+			break
+		}
+	}
+
 	return m, nil
 }
 
@@ -2215,19 +2555,22 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 	// Replace default domain mapping with all mappings from the form
 	site.DomainMappings = domainMappings
 
-	// Set SSL email (field 5) if provided
-	if m.state.FormFields[5] != "" {
-		site.SSLEmail = strings.TrimSpace(m.state.FormFields[5])
+	// Set SSL email (field 4) if provided
+	if m.state.FormFields[4] != "" {
+		site.SSLEmail = strings.TrimSpace(m.state.FormFields[4])
 	}
 
 	// For container deployments: parse environment variables and config files
 	if !isCompose {
-		// Set Docker credentials (fields 3, 4)
+		// Set Docker credential ID (field 3) if provided
 		if m.state.FormFields[3] != "" {
-			site.DockerUsername = strings.TrimSpace(m.state.FormFields[3])
-		}
-		if m.state.FormFields[4] != "" {
-			site.DockerToken = strings.TrimSpace(m.state.FormFields[4])
+			credID, err := uuid.Parse(m.state.FormFields[3])
+			if err == nil {
+				site.DockerCredentialID = &credID
+				m.state.AddNotification("Docker credential set: "+credID.String()[:8]+"...", "info")
+			} else {
+				m.state.AddNotification("Failed to parse credential ID: "+err.Error(), "warning")
+			}
 		}
 
 		// Parse environment variables from EnvVarPairs
@@ -2239,9 +2582,9 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Load config file (field 6) if provided
-		if m.state.FormFields[6] != "" {
-			configPath := strings.TrimSpace(m.state.FormFields[6])
+		// Load config file (field 5) if provided
+		if m.state.FormFields[5] != "" {
+			configPath := strings.TrimSpace(m.state.FormFields[5])
 			content, err := os.ReadFile(configPath)
 			if err != nil {
 				m.state.AddNotification("Failed to read config file: "+err.Error(), "warning")
@@ -2385,16 +2728,33 @@ func (m Model) handleSiteEditSubmit() (tea.Model, tea.Cmd) {
 	m.state.Sites[siteIndex].DomainID = firstDomainID
 	m.state.Sites[siteIndex].NodeID = nodeID
 	m.state.Sites[siteIndex].Port = firstPort
-	m.state.Sites[siteIndex].SSLEmail = strings.TrimSpace(m.state.FormFields[5]) // SSL Email at index 5
+	m.state.Sites[siteIndex].SSLEmail = strings.TrimSpace(m.state.FormFields[4]) // SSL Email at index 4
 
 	// Update domain mappings with all mappings from form
 	m.state.Sites[siteIndex].DomainMappings = domainMappings
 
 	// For container deployments: update docker-specific fields
 	if !isCompose {
-		m.state.Sites[siteIndex].DockerImage = m.state.FormFields[2]                     // Docker Image at index 2
-		m.state.Sites[siteIndex].DockerUsername = strings.TrimSpace(m.state.FormFields[3]) // Docker Username at index 3
-		m.state.Sites[siteIndex].DockerToken = strings.TrimSpace(m.state.FormFields[4])    // Docker Token at index 4
+		m.state.Sites[siteIndex].DockerImage = m.state.FormFields[2] // Docker Image at index 2
+
+		// Set Docker credential ID (field 3) - clears legacy username/token
+		if m.state.FormFields[3] != "" {
+			credID, err := uuid.Parse(m.state.FormFields[3])
+			if err == nil {
+				m.state.Sites[siteIndex].DockerCredentialID = &credID
+				// Clear legacy fields when using new credential system
+				m.state.Sites[siteIndex].DockerUsername = ""
+				m.state.Sites[siteIndex].DockerToken = ""
+				m.state.AddNotification("Docker credential updated: "+credID.String()[:8]+"...", "info")
+			} else {
+				m.state.AddNotification("Failed to parse credential ID: "+err.Error(), "warning")
+			}
+		} else {
+			// No credential selected - clear both new and legacy fields
+			m.state.Sites[siteIndex].DockerCredentialID = nil
+			m.state.Sites[siteIndex].DockerUsername = ""
+			m.state.Sites[siteIndex].DockerToken = ""
+		}
 
 		// Update environment variables from EnvVarPairs
 		m.state.Sites[siteIndex].EnvironmentVars = make(map[string]string)
@@ -2406,9 +2766,9 @@ func (m Model) handleSiteEditSubmit() (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Load config file (field 6) if provided
-		if m.state.FormFields[6] != "" {
-			configPath := strings.TrimSpace(m.state.FormFields[6])
+		// Load config file (field 5) if provided
+		if m.state.FormFields[5] != "" {
+			configPath := strings.TrimSpace(m.state.FormFields[5])
 			content, err := os.ReadFile(configPath)
 			if err != nil {
 				m.state.AddNotification("Failed to read config file: "+err.Error(), "warning")
@@ -2948,6 +3308,7 @@ func (m Model) saveConfigSync() error {
 			CloudflareAPIToken:      m.state.CloudflareAPIToken,
 			Route53AccessKey:        m.state.Route53AccessKey,
 			Route53SecretKey:        m.state.Route53SecretKey,
+			DockerCredentials:       convertStateDockerCredentials(m.state.DockerCredentials),
 		},
 	}
 

@@ -110,6 +110,12 @@ func RenderScreen(s *state.AppState, zm *zone.Manager) string {
 		return screens.RenderQuickConfig(s)
 	case state.ScreenSettings:
 		return screens.RenderSettingsWithZones(s, zm)
+	case state.ScreenDockerCredentialsList:
+		return screens.RenderDockerCredentialsListWithZones(s, zm)
+	case state.ScreenDockerCredentialCreate:
+		return screens.RenderDockerCredentialCreateWithZones(s, zm)
+	case state.ScreenDockerCredentialEdit:
+		return screens.RenderDockerCredentialEditWithZones(s, zm)
 	case state.ScreenHelp:
 		return screens.RenderHelp()
 	case state.ScreenSiteDeleteConfirm:

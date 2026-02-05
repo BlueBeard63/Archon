@@ -296,6 +296,15 @@ func (c *HTTPNodeClient) DeleteSite(endpoint, apiKey string, siteID uuid.UUID, d
 	return nil
 }
 
+// siteStatusResponse matches the JSON response from the node's status endpoint
+type siteStatusResponse struct {
+	SiteID      uuid.UUID         `json:"site_id"`
+	Status      models.SiteStatus `json:"status"`
+	ContainerID string            `json:"container_id,omitempty"`
+	IsRunning   bool              `json:"is_running"`
+	Message     string            `json:"message,omitempty"`
+}
+
 // GetSiteStatus retrieves the current status of a deployed site
 func (c *HTTPNodeClient) GetSiteStatus(endpoint, apiKey string, siteID uuid.UUID, siteName string, siteType models.SiteType) (*models.SiteStatus, error) {
 	url := fmt.Sprintf("%s/api/v1/sites/%s/status", endpoint, siteID.String())
@@ -315,12 +324,12 @@ func (c *HTTPNodeClient) GetSiteStatus(endpoint, apiKey string, siteID uuid.UUID
 		return nil, fmt.Errorf("get status failed with status %d", resp.StatusCode)
 	}
 
-	var status models.SiteStatus
-	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+	var statusResp siteStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
 		return nil, fmt.Errorf("failed to decode status response: %w", err)
 	}
 
-	return &status, nil
+	return &statusResp.Status, nil
 }
 
 // StopSite stops a running site container

@@ -49,7 +49,7 @@ func PerformNodeHealthChecks(nodes []models.Node, nodeClient api.NodeClient) []t
 	return cmds
 }
 
-// PerformSiteStatusChecks returns commands to check status of all running/stopped sites
+// PerformSiteStatusChecks returns commands to check status of all sites
 func PerformSiteStatusChecks(sites []models.Site, nodes []models.Node, nodeClient api.NodeClient) []tea.Cmd {
 	cmds := make([]tea.Cmd, 0)
 
@@ -60,8 +60,8 @@ func PerformSiteStatusChecks(sites []models.Site, nodes []models.Node, nodeClien
 	}
 
 	for _, site := range sites {
-		// Skip sites that are inactive or deploying
-		if site.Status == models.SiteStatusInactive || site.Status == models.SiteStatusDeploying {
+		// Skip sites that are currently deploying (in progress)
+		if site.Status == models.SiteStatusDeploying {
 			continue
 		}
 

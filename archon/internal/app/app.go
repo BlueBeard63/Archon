@@ -52,6 +52,9 @@ func NewModel(configPath string) (*Model, error) {
 	appState.Route53SecretKey = cfg.Settings.Route53SecretKey
 	appState.HealthCheckIntervalSecs = cfg.Settings.HealthCheckIntervalSecs
 
+	// Load Docker credentials from config
+	appState.DockerCredentials = convertConfigDockerCredentials(cfg.Settings.DockerCredentials)
+
 	return &Model{
 		state:        appState,
 		nodeClient:   api.NewHTTPNodeClient(),
@@ -159,6 +162,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.zone.Get("button:create-node").InBounds(msg) {
 				m.state.NavigateTo(state.ScreenNodeCreate)
+				return m, nil
+			}
+			if m.zone.Get("button:manage-docker-credentials").InBounds(msg) {
+				m.state.NavigateTo(state.ScreenDockerCredentialsList)
+				return m, nil
+			}
+			if m.zone.Get("button:create-docker-credential").InBounds(msg) {
+				m.state.NavigateTo(state.ScreenDockerCredentialCreate)
 				return m, nil
 			}
 
@@ -269,6 +280,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for i, node := range m.state.Nodes {
 				viewID := "button:view-node-" + node.ID.String()
 				editID := "button:edit-node-" + node.ID.String()
+				quickConfigID := "button:quick-config-node-" + node.ID.String()
 				deleteID := "button:delete-node-" + node.ID.String()
 
 				if m.zone.Get(viewID).InBounds(msg) {
@@ -295,6 +307,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state.NavigateTo(state.ScreenNodeEdit)
 					return m, nil
 				}
+				if m.zone.Get(quickConfigID).InBounds(msg) {
+					// Sync table cursor
+					m.state.NodesListIndex = i
+					if m.state.NodesTable != nil {
+						m.state.NodesTable.SetCursor(i)
+					}
+
+					// Navigate to quick config screen
+					m.state.SelectedNodeID = node.ID
+					// Reset quick config state
+					m.state.QuickConfigURL = ""
+					m.state.QuickConfigExpiresAt = ""
+					m.state.QuickConfigNodeID = uuid.Nil
+					m.state.QuickConfigHealthConfirmed = false
+					m.state.NavigateTo(state.ScreenNodeQuickConfig)
+					return m, nil
+				}
 				if m.zone.Get(deleteID).InBounds(msg) {
 					// Sync table cursor
 					m.state.NodesListIndex = i
@@ -304,6 +333,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 					// Delete node
 					return m.handleDeleteNode(node.ID)
+				}
+			}
+
+			// Docker credentials
+			for i, cred := range m.state.DockerCredentials {
+				editID := "button:edit-docker-credential-" + cred.ID.String()
+				deleteID := "button:delete-docker-credential-" + cred.ID.String()
+
+				if m.zone.Get(editID).InBounds(msg) {
+					// Sync table cursor
+					m.state.DockerCredentialsListIndex = i
+					if m.state.DockerCredentialsTable != nil {
+						m.state.DockerCredentialsTable.SetCursor(i)
+					}
+
+					// Navigate to edit screen
+					m.state.SelectedDockerCredentialID = cred.ID
+					m.state.NavigateTo(state.ScreenDockerCredentialEdit)
+					return m, nil
+				}
+				if m.zone.Get(deleteID).InBounds(msg) {
+					// Sync table cursor
+					m.state.DockerCredentialsListIndex = i
+					if m.state.DockerCredentialsTable != nil {
+						m.state.DockerCredentialsTable.SetCursor(i)
+					}
+
+					// Delete credential
+					return m.handleDeleteDockerCredential(cred.ID)
 				}
 			}
 
@@ -555,9 +613,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.spawnNodeHealthCheck(msg.NodeID)
 
 	case NodeHealthCheckResultMsg:
-		// Node status is already updated in spawnNodeHealthCheck
+		// Update node status from health check result
+		var nodeName string
 		if msg.Error != nil {
-			m.state.AddNotification("Node health check failed: "+msg.Error.Error(), "error")
+			// Mark node as offline on error
+			for i := range m.state.Nodes {
+				if m.state.Nodes[i].ID == msg.NodeID {
+					m.state.Nodes[i].Status = models.NodeStatusOffline
+					nodeName = m.state.Nodes[i].Name
+					break
+				}
+			}
+			// Show notification during force refresh
+			if m.state.ForceRefreshInProgress && nodeName != "" {
+				m.state.ForceRefreshCompleted++
+				m.state.AddNotification(fmt.Sprintf("[%d/%d] Node %s: offline",
+					m.state.ForceRefreshCompleted, m.state.ForceRefreshTotal, nodeName), "warning")
+			}
+		} else if msg.Result != nil {
+			// Update node with health check result
+			for i := range m.state.Nodes {
+				if m.state.Nodes[i].ID == msg.NodeID {
+					m.state.Nodes[i].Status = msg.Result.Status
+					m.state.Nodes[i].DockerInfo = msg.Result.Docker
+					m.state.Nodes[i].TraefikInfo = msg.Result.Traefik
+					now := time.Now()
+					m.state.Nodes[i].LastHealthCheck = &now
+					nodeName = m.state.Nodes[i].Name
+					break
+				}
+			}
+			// Show notification during force refresh
+			if m.state.ForceRefreshInProgress && nodeName != "" {
+				m.state.ForceRefreshCompleted++
+				m.state.AddNotification(fmt.Sprintf("[%d/%d] Node %s: %s",
+					m.state.ForceRefreshCompleted, m.state.ForceRefreshTotal, nodeName, msg.Result.Status), "success")
+			}
+		}
+		// Check if refresh is complete
+		if m.state.ForceRefreshInProgress && m.state.ForceRefreshCompleted >= m.state.ForceRefreshTotal {
+			m.state.ForceRefreshInProgress = false
+			m.state.AddNotification("Refresh complete", "success")
 		}
 		return m, nil
 
@@ -644,15 +740,86 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, tea.Batch(cmds...)
 
+	case ForceRefreshMsg:
+		// Manual refresh triggered by user - same as TickMsg but with notifications
+		var cmds []tea.Cmd
+
+		// Build node map for checking site validity
+		nodeMap := make(map[uuid.UUID]bool)
+		for _, node := range m.state.Nodes {
+			nodeMap[node.ID] = true
+		}
+
+		// Count what will be refreshed (skip deploying sites and sites without valid nodes)
+		nodeCount := len(m.state.Nodes)
+		siteCount := 0
+		for _, site := range m.state.Sites {
+			if site.Status != models.SiteStatusDeploying && nodeMap[site.NodeID] {
+				siteCount++
+			}
+		}
+
+		totalCount := nodeCount + siteCount
+		if totalCount == 0 {
+			m.state.AddNotification("Nothing to refresh", "info")
+			return m, nil
+		}
+
+		// Show summary notification
+		m.state.AddNotification(fmt.Sprintf("Refreshing %d nodes and %d sites...", nodeCount, siteCount), "info")
+
+		// Mark this as a force refresh and track progress
+		m.state.ForceRefreshInProgress = true
+		m.state.ForceRefreshTotal = totalCount
+		m.state.ForceRefreshCompleted = 0
+
+		// Add health checks for all nodes
+		nodeHealthCmds := PerformNodeHealthChecks(m.state.Nodes, m.nodeClient)
+		cmds = append(cmds, nodeHealthCmds...)
+
+		// Add status checks for all sites (except deploying)
+		siteStatusCmds := PerformSiteStatusChecks(m.state.Sites, m.state.Nodes, m.nodeClient)
+		cmds = append(cmds, siteStatusCmds...)
+
+		// Don't restart the ticker - it continues on its own schedule
+
+		return m, tea.Batch(cmds...)
+
 	case SiteStatusCheckResultMsg:
 		// Update site status based on check result
+		var siteName string
 		if msg.Error == nil && msg.Status != "" {
 			for i := range m.state.Sites {
 				if m.state.Sites[i].ID == msg.SiteID {
 					m.state.Sites[i].Status = models.SiteStatus(msg.Status)
+					siteName = m.state.Sites[i].Name
 					break
 				}
 			}
+			// Show notification during force refresh
+			if m.state.ForceRefreshInProgress && siteName != "" {
+				m.state.ForceRefreshCompleted++
+				m.state.AddNotification(fmt.Sprintf("[%d/%d] Site %s: %s",
+					m.state.ForceRefreshCompleted, m.state.ForceRefreshTotal, siteName, msg.Status), "success")
+			}
+		} else if msg.Error != nil && m.state.ForceRefreshInProgress {
+			// Show error notification during force refresh
+			for i := range m.state.Sites {
+				if m.state.Sites[i].ID == msg.SiteID {
+					siteName = m.state.Sites[i].Name
+					break
+				}
+			}
+			if siteName != "" {
+				m.state.ForceRefreshCompleted++
+				m.state.AddNotification(fmt.Sprintf("[%d/%d] Site %s: check failed",
+					m.state.ForceRefreshCompleted, m.state.ForceRefreshTotal, siteName), "warning")
+			}
+		}
+		// Check if refresh is complete
+		if m.state.ForceRefreshInProgress && m.state.ForceRefreshCompleted >= m.state.ForceRefreshTotal {
+			m.state.ForceRefreshInProgress = false
+			m.state.AddNotification("Refresh complete", "success")
 		}
 		return m, nil
 
@@ -1161,4 +1328,34 @@ func (m Model) saveConfig() tea.Cmd {
 
 		return ConfigSavedMsg{Error: nil}
 	}
+}
+
+// convertConfigDockerCredentials converts config.DockerCredential slice to state.DockerCredential slice
+func convertConfigDockerCredentials(creds []config.DockerCredential) []state.DockerCredential {
+	result := make([]state.DockerCredential, len(creds))
+	for i, c := range creds {
+		result[i] = state.DockerCredential{
+			ID:       c.ID,
+			Name:     c.Name,
+			Registry: c.Registry,
+			Username: c.Username,
+			Token:    c.Token,
+		}
+	}
+	return result
+}
+
+// convertStateDockerCredentials converts state.DockerCredential slice to config.DockerCredential slice
+func convertStateDockerCredentials(creds []state.DockerCredential) []config.DockerCredential {
+	result := make([]config.DockerCredential, len(creds))
+	for i, c := range creds {
+		result[i] = config.DockerCredential{
+			ID:       c.ID,
+			Name:     c.Name,
+			Registry: c.Registry,
+			Username: c.Username,
+			Token:    c.Token,
+		}
+	}
+	return result
 }

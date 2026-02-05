@@ -262,6 +262,9 @@ type AsyncResultMsg struct {
 // TickMsg is sent periodically for background tasks
 type TickMsg struct{}
 
+// ForceRefreshMsg triggers an immediate health check for all nodes and sites
+type ForceRefreshMsg struct{}
+
 // SiteStatusCheckResultMsg is returned after checking a site's status
 type SiteStatusCheckResultMsg struct {
 	SiteID uuid.UUID

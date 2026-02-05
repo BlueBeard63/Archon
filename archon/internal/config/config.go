@@ -8,11 +8,12 @@ import (
 )
 
 type Config struct {
-	Version  string          `toml:"version"`
-	Sites    []models.Site   `toml:"sites"`
-	Domains  []models.Domain `toml:"domains"`
-	Nodes    []models.Node   `toml:"nodes"`
-	Settings Settings        `toml:"settings"`
+	Version          string          `toml:"version"`
+	MigrationVersion int             `toml:"migration_version,omitempty"`
+	Sites            []models.Site   `toml:"sites"`
+	Domains          []models.Domain `toml:"domains"`
+	Nodes            []models.Node   `toml:"nodes"`
+	Settings         Settings        `toml:"settings"`
 }
 
 // DockerCredential represents stored Docker registry credentials
