@@ -995,3 +995,60 @@ func RenderSiteEnvVarsWithZones(s *state.AppState, zm *zone.Manager) string {
 
 	return title + "\n\n" + envSection + "\n" + help
 }
+
+// RenderSiteDeleteConfirm renders the site deletion confirmation dialog
+func RenderSiteDeleteConfirm(s *state.AppState, zm *zone.Manager) string {
+	// Dialog styling
+	dialogStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#FF0000")).
+		Padding(1, 2).
+		Width(60)
+
+	warningStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FF0000")).
+		Bold(true)
+
+	labelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#AAAAAA"))
+
+	inputStyle := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#7C3AED")).
+		Padding(0, 1).
+		Width(50)
+
+	// Build the dialog content
+	title := warningStyle.Render("⚠️  DELETE CONFIRMATION")
+
+	message := fmt.Sprintf(
+		"\nYou are about to delete the %s:\n\n  %s\n\nThis action cannot be undone.",
+		s.DeletionTargetType,
+		warningStyle.Render(s.DeletionTargetName),
+	)
+
+	prompt := labelStyle.Render("\nType the name to confirm:")
+	input := inputStyle.Render(s.DeletionConfirmInput + "█")
+
+	help := helpStyle.Render("\nEnter: confirm • Esc: cancel")
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		message,
+		prompt,
+		input,
+		help,
+	)
+
+	dialog := dialogStyle.Render(content)
+
+	// Center the dialog on screen
+	return lipgloss.Place(
+		s.WindowWidth,
+		s.WindowHeight-6, // Account for header, tabs, and status bar
+		lipgloss.Center,
+		lipgloss.Center,
+		dialog,
+	)
+}

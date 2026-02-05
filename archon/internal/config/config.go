@@ -114,4 +114,7 @@ type ConfigLoader interface {
 	Save(path string, config *Config) error
 	DeleteSite(siteName, domainName string) error
 	DeleteNode(nodeName string) error
+	ArchiveSite(siteName, domainName string, site models.Site) (string, error)
+	LoadDeletedSites() ([]DeletedSite, error)
+	RestoreDeletedSite(archivePath, siteName, domainName string) error
 }

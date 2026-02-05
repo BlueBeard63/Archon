@@ -10,6 +10,7 @@ import (
 type NodeClient interface {
 	// Site deployment operations
 	DeploySite(endpoint, apiKey string, site *models.Site, domainName string) error
+	UpdateSite(endpoint, apiKey string, siteID uuid.UUID, dockerUsername, dockerToken string) error
 	DeleteSite(endpoint, apiKey string, siteID uuid.UUID, domain, siteName string, siteType models.SiteType) error
 	GetSiteStatus(endpoint, apiKey string, siteID uuid.UUID, siteName string, siteType models.SiteType) (*models.SiteStatus, error)
 	StopSite(endpoint, apiKey string, siteID uuid.UUID, siteName string, siteType models.SiteType) error

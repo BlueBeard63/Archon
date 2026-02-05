@@ -345,3 +345,189 @@ func (f *FileConfigLoader) DeleteNode(nodeName string) error {
 	nodePath := filepath.Join(baseDir, "nodes", nodeName)
 	return os.RemoveAll(nodePath)
 }
+
+// DeletedSite represents an archived site with metadata
+type DeletedSite struct {
+	Site        models.Site `json:"site" toml:"site"`
+	DomainName  string      `json:"domain_name" toml:"domain_name"`
+	ArchivePath string      `json:"archive_path" toml:"archive_path"`
+	DeletedAt   string      `json:"deleted_at" toml:"deleted_at"` // Timestamp from directory name
+}
+
+// ArchiveSite moves a site to the deleted archive before deletion
+func (f *FileConfigLoader) ArchiveSite(siteName, domainName string, site models.Site) (string, error) {
+	baseDir, err := GetArchonConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return f.ArchiveSiteWithBaseDir(baseDir, siteName, domainName, site)
+}
+
+// ArchiveSiteWithBaseDir archives a site with a configurable base directory (for testing)
+func (f *FileConfigLoader) ArchiveSiteWithBaseDir(baseDir, siteName, domainName string, site models.Site) (string, error) {
+	// Source path
+	srcPath := filepath.Join(baseDir, "sites", domainName, siteName)
+
+	// Check if source exists
+	if _, err := os.Stat(srcPath); os.IsNotExist(err) {
+		return "", err
+	}
+
+	// Create archive path with timestamp
+	timestamp := site.UpdatedAt.Format("20060102-150405")
+	if timestamp == "00010101-000000" {
+		// Fallback to current time if UpdatedAt is not set
+		timestamp = filepath.Base(srcPath) + "-" + string(rune(os.Getpid()))
+	}
+	archivePath := filepath.Join(baseDir, "deleted", domainName, siteName, timestamp)
+
+	// Create archive directory
+	if err := os.MkdirAll(archivePath, 0755); err != nil {
+		return "", err
+	}
+
+	// Read original config
+	configData, err := os.ReadFile(filepath.Join(srcPath, "config.toml"))
+	if err != nil {
+		return "", err
+	}
+
+	// Write to archive
+	if err := os.WriteFile(filepath.Join(archivePath, "config.toml"), configData, 0644); err != nil {
+		return "", err
+	}
+
+	// Remove original directory
+	if err := os.RemoveAll(srcPath); err != nil {
+		return "", err
+	}
+
+	return archivePath, nil
+}
+
+// LoadDeletedSites returns all archived (deleted) sites
+func (f *FileConfigLoader) LoadDeletedSites() ([]DeletedSite, error) {
+	baseDir, err := GetArchonConfigDir()
+	if err != nil {
+		return nil, err
+	}
+	return f.LoadDeletedSitesWithBaseDir(baseDir)
+}
+
+// LoadDeletedSitesWithBaseDir loads deleted sites with a configurable base directory (for testing)
+func (f *FileConfigLoader) LoadDeletedSitesWithBaseDir(baseDir string) ([]DeletedSite, error) {
+	var deletedSites []DeletedSite
+
+	deletedDir := filepath.Join(baseDir, "deleted")
+
+	// Check if deleted directory exists
+	if _, err := os.Stat(deletedDir); os.IsNotExist(err) {
+		return deletedSites, nil // Return empty list, not an error
+	}
+
+	// Iterate over domains
+	domainDirs, err := os.ReadDir(deletedDir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, domainDir := range domainDirs {
+		if !domainDir.IsDir() {
+			continue
+		}
+		domainName := domainDir.Name()
+		domainPath := filepath.Join(deletedDir, domainName)
+
+		// Iterate over sites within domain
+		siteDirs, err := os.ReadDir(domainPath)
+		if err != nil {
+			continue
+		}
+
+		for _, siteDir := range siteDirs {
+			if !siteDir.IsDir() {
+				continue
+			}
+			siteName := siteDir.Name()
+			sitePath := filepath.Join(domainPath, siteName)
+
+			// Iterate over timestamps (archived versions)
+			timestampDirs, err := os.ReadDir(sitePath)
+			if err != nil {
+				continue
+			}
+
+			for _, tsDir := range timestampDirs {
+				if !tsDir.IsDir() {
+					continue
+				}
+				archivePath := filepath.Join(sitePath, tsDir.Name())
+				configPath := filepath.Join(archivePath, "config.toml")
+
+				// Read config file
+				data, err := os.ReadFile(configPath)
+				if err != nil {
+					continue
+				}
+
+				var site models.Site
+				if err := toml.Unmarshal(data, &site); err != nil {
+					continue
+				}
+
+				deletedSites = append(deletedSites, DeletedSite{
+					Site:        site,
+					DomainName:  domainName,
+					ArchivePath: archivePath,
+					DeletedAt:   tsDir.Name(),
+				})
+			}
+		}
+	}
+
+	return deletedSites, nil
+}
+
+// RestoreDeletedSite moves an archived site back to active sites
+func (f *FileConfigLoader) RestoreDeletedSite(archivePath, siteName, domainName string) error {
+	baseDir, err := GetArchonConfigDir()
+	if err != nil {
+		return err
+	}
+	return f.RestoreDeletedSiteWithBaseDir(baseDir, archivePath, siteName, domainName)
+}
+
+// RestoreDeletedSiteWithBaseDir restores a site with a configurable base directory (for testing)
+func (f *FileConfigLoader) RestoreDeletedSiteWithBaseDir(baseDir, archivePath, siteName, domainName string) error {
+	// Check if archive exists
+	configPath := filepath.Join(archivePath, "config.toml")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return err
+	}
+
+	// Destination path
+	destPath := filepath.Join(baseDir, "sites", domainName, siteName)
+
+	// Create destination directory
+	if err := os.MkdirAll(destPath, 0755); err != nil {
+		return err
+	}
+
+	// Read archived config
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+
+	// Write to active location
+	if err := os.WriteFile(filepath.Join(destPath, "config.toml"), data, 0644); err != nil {
+		return err
+	}
+
+	// Remove archive directory
+	if err := os.RemoveAll(archivePath); err != nil {
+		return err
+	}
+
+	return nil
+}

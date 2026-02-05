@@ -71,6 +71,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		r.Get("/api/v1/sites/{siteID}/status", handlers.HandleGetSiteStatus)
 		r.Post("/api/v1/sites/{siteID}/stop", handlers.HandleStopSite)
 		r.Post("/api/v1/sites/{siteID}/restart", handlers.HandleRestartSite)
+		r.Post("/api/v1/sites/{siteID}/update", handlers.HandleUpdateSite) // Pull latest image and recreate
 		r.Delete("/api/v1/sites/{siteID}", handlers.HandleDeleteSite)
 		r.Get("/api/v1/sites/{siteID}/logs", handlers.HandleGetLogs)
 	})

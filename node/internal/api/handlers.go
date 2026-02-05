@@ -307,6 +307,60 @@ func (h *Handlers) HandleDeleteSite(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Site deleted successfully"})
 }
 
+// HandleUpdateSite pulls the latest image and recreates the container
+func (h *Handlers) HandleUpdateSite(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get site ID from URL
+	siteIDStr := chi.URLParam(r, "siteID")
+	siteID, err := uuid.Parse(siteIDStr)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid site ID")
+		return
+	}
+
+	// Parse optional request body for credentials
+	var req struct {
+		DockerUsername         string `json:"docker_username,omitempty"`
+		DockerToken            string `json:"docker_token,omitempty"`
+		CredentialsEncrypted   bool   `json:"credentials_encrypted,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Decrypt credentials if encrypted
+	username := req.DockerUsername
+	password := req.DockerToken
+	if req.CredentialsEncrypted && h.apiKey != "" {
+		if username != "" {
+			decrypted, err := crypto.Decrypt(username, h.apiKey)
+			if err != nil {
+				log.Printf("Warning: Failed to decrypt username: %v", err)
+			} else {
+				username = decrypted
+			}
+		}
+		if password != "" {
+			decrypted, err := crypto.Decrypt(password, h.apiKey)
+			if err != nil {
+				log.Printf("Warning: Failed to decrypt token: %v", err)
+			} else {
+				password = decrypted
+			}
+		}
+	}
+
+	// Update the site
+	if err := h.dockerClient.UpdateSite(ctx, siteID, username, password); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to update site: "+err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"message": "Site updated successfully"})
+}
+
 // HandleGetLogs retrieves container logs
 func (h *Handlers) HandleGetLogs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

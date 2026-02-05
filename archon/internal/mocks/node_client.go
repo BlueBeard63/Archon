@@ -51,6 +51,12 @@ func (m *MockNodeClient) RestartSite(endpoint, apiKey string, siteID uuid.UUID) 
 	return args.Error(0)
 }
 
+// UpdateSite mocks the UpdateSite method
+func (m *MockNodeClient) UpdateSite(endpoint, apiKey string, siteID uuid.UUID, dockerUsername, dockerToken string) error {
+	args := m.Called(endpoint, apiKey, siteID, dockerUsername, dockerToken)
+	return args.Error(0)
+}
+
 // HealthCheck mocks the HealthCheck method
 func (m *MockNodeClient) HealthCheck(endpoint, apiKey string) (*api.HealthResponse, error) {
 	args := m.Called(endpoint, apiKey)
@@ -94,10 +100,4 @@ func (m *MockNodeClient) GetContainerMetrics(endpoint, apiKey string, siteID uui
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*api.ContainerMetrics), args.Error(1)
-}
-
-// UpdateSite mocks the UpdateSite method
-func (m *MockNodeClient) UpdateSite(endpoint, apiKey string, siteID uuid.UUID) error {
-	args := m.Called(endpoint, apiKey, siteID)
-	return args.Error(0)
 }

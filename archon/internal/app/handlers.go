@@ -114,7 +114,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state.CurrentScreen == state.ScreenNodeCreate ||
 		m.state.CurrentScreen == state.ScreenNodeEdit ||
 		m.state.CurrentScreen == state.ScreenNodeConfigSave ||
-		m.state.CurrentScreen == state.ScreenSettings
+		m.state.CurrentScreen == state.ScreenSettings ||
+		m.state.CurrentScreen == state.ScreenSiteDeleteConfirm
 
 	// Critical global key bindings (work on all screens)
 	switch msg.String() {
@@ -123,6 +124,10 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return QuitMsg{} }
 
 	case "esc":
+		// Skip global esc on confirmation screen - let the screen handler handle it
+		if m.state.CurrentScreen == state.ScreenSiteDeleteConfirm {
+			break
+		}
 		// Go back to previous screen (always available)
 		m.state.NavigateBack()
 		return m, nil
@@ -183,6 +188,13 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNodeConfigSaveKeys(msg)
 	case state.ScreenHelp:
 		return m.handleHelpKeys(msg)
+	case state.ScreenSiteDeleteConfirm:
+		// Handle typed characters (runes)
+		if msg.Type == tea.KeyRunes {
+			return m.handleDeleteConfirmRune(msg.Runes[0])
+		}
+		// Handle special keys
+		return m.handleDeleteConfirmKeys(msg.String())
 	}
 
 	return m, nil
@@ -235,10 +247,10 @@ func (m Model) handleSitesListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "d":
-		// Delete selected site
+		// Navigate to delete confirmation screen
 		if len(m.state.Sites) > 0 && m.state.SitesListIndex >= 0 && m.state.SitesListIndex < len(m.state.Sites) {
 			site := m.state.Sites[m.state.SitesListIndex]
-			return m.handleDeleteSite(site.ID)
+			return m.initiateDeleteConfirmation(site.ID, site.Name, "site")
 		}
 		return m, nil
 
@@ -1017,6 +1029,40 @@ func (m Model) handleEnvVarInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyRunes:
+		// Handle + and - keys for adding/removing ENV pairs
+		if len(msg.Runes) == 1 {
+			switch msg.Runes[0] {
+			case '+':
+				// Add new ENV pair
+				m.state.EnvVarPairs = append(m.state.EnvVarPairs, state.EnvVarPair{Key: "", Value: ""})
+				// Move focus to the new pair's key field
+				m.state.EnvVarFocusedPair = len(m.state.EnvVarPairs) - 1
+				m.state.EnvVarFocusedField = 0
+				m.state.CursorPosition = 0
+				return m, nil
+			case '-':
+				// Remove current ENV pair (but keep at least one)
+				if len(m.state.EnvVarPairs) > 1 {
+					m.state.EnvVarPairs = append(
+						m.state.EnvVarPairs[:pairIdx],
+						m.state.EnvVarPairs[pairIdx+1:]...,
+					)
+					// Adjust focus if we removed the last pair
+					if m.state.EnvVarFocusedPair >= len(m.state.EnvVarPairs) {
+						m.state.EnvVarFocusedPair = len(m.state.EnvVarPairs) - 1
+					}
+					// Reset cursor
+					if m.state.EnvVarFocusedField == 0 {
+						m.state.CursorPosition = len(m.state.EnvVarPairs[m.state.EnvVarFocusedPair].Key)
+					} else {
+						m.state.CursorPosition = len(m.state.EnvVarPairs[m.state.EnvVarFocusedPair].Value)
+					}
+				}
+				return m, nil
+			}
+		}
+
+		// Regular character input
 		cursor := m.state.CursorPosition
 		if m.state.EnvVarFocusedField == 0 {
 			// Editing key
@@ -2782,10 +2828,35 @@ func (m Model) handleDeleteSite(siteID uuid.UUID) (tea.Model, tea.Cmd) {
 		if site.ID == siteID {
 			// Get domain name for site directory structure
 			domain := m.state.GetDomainByID(site.DomainID)
+			domainName := ""
 			if domain != nil {
-				// Delete site files from filesystem
-				if err := m.configLoader.DeleteSite(site.Name, domain.Name); err != nil {
-					m.state.AddNotification("Failed to delete site files: "+err.Error(), "error")
+				domainName = domain.Name
+			}
+
+			// Get node for this site
+			node := m.state.GetNodeByID(site.NodeID)
+
+			// Call node API to delete deployed resources (only for non-inactive sites)
+			if site.Status != models.SiteStatusInactive && node != nil {
+				err := m.nodeClient.DeleteSite(
+					node.APIEndpoint,
+					node.APIKey,
+					site.ID,
+					domainName,
+					site.Name,
+					site.GetSiteType(),
+				)
+				if err != nil {
+					// Log warning but continue with local deletion
+					m.state.AddNotification("Warning: Failed to delete from node: "+err.Error(), "warning")
+				}
+			}
+
+			// Archive site files (moves to deleted folder instead of permanent deletion)
+			if domain != nil {
+				_, err := m.configLoader.ArchiveSite(site.Name, domain.Name, site)
+				if err != nil {
+					m.state.AddNotification("Warning: Failed to archive site files: "+err.Error(), "warning")
 					// Continue with state removal anyway
 				}
 			}
@@ -2876,6 +2947,82 @@ func (m Model) handleDeleteNode(nodeID uuid.UUID) (tea.Model, tea.Cmd) {
 	}
 
 	m.state.AddNotification("Node not found", "error")
+	return m, nil
+}
+
+// ============================================================================
+// Deletion Confirmation Handlers
+// ============================================================================
+
+// initiateDeleteConfirmation sets up the deletion confirmation state and navigates to the confirmation screen
+func (m Model) initiateDeleteConfirmation(targetID uuid.UUID, targetName string, targetType string) (tea.Model, tea.Cmd) {
+	m.state.DeletionConfirmPending = true
+	m.state.DeletionTargetID = targetID
+	m.state.DeletionTargetName = targetName
+	m.state.DeletionTargetType = targetType
+	m.state.DeletionConfirmInput = ""
+	m.state.NavigateTo(state.ScreenSiteDeleteConfirm)
+	return m, nil
+}
+
+// handleDeleteConfirmKeys handles keyboard input on the deletion confirmation screen
+func (m Model) handleDeleteConfirmKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		// Cancel deletion and go back
+		m.state.DeletionConfirmPending = false
+		m.state.DeletionConfirmInput = ""
+		m.state.DeletionTargetID = uuid.Nil
+		m.state.DeletionTargetName = ""
+		m.state.DeletionTargetType = ""
+		m.state.NavigateBack()
+		return m, nil
+
+	case "enter":
+		// Check if input matches target name exactly (case-sensitive)
+		if m.state.DeletionConfirmInput == m.state.DeletionTargetName {
+			// Proceed with deletion based on type
+			targetID := m.state.DeletionTargetID
+			targetType := m.state.DeletionTargetType
+
+			// Clear confirmation state
+			m.state.DeletionConfirmPending = false
+			m.state.DeletionConfirmInput = ""
+			m.state.DeletionTargetID = uuid.Nil
+			m.state.DeletionTargetName = ""
+			m.state.DeletionTargetType = ""
+
+			// Navigate back first
+			m.state.NavigateBack()
+
+			// Perform deletion
+			switch targetType {
+			case "site":
+				return m.handleDeleteSite(targetID)
+			case "domain":
+				return m.handleDeleteDomain(targetID)
+			case "node":
+				return m.handleDeleteNode(targetID)
+			}
+		} else {
+			m.state.AddNotification("Name does not match. Please type the exact name to confirm.", "error")
+		}
+		return m, nil
+
+	case "backspace":
+		// Remove last character
+		if len(m.state.DeletionConfirmInput) > 0 {
+			m.state.DeletionConfirmInput = m.state.DeletionConfirmInput[:len(m.state.DeletionConfirmInput)-1]
+		}
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// handleDeleteConfirmRune handles character input on the deletion confirmation screen
+func (m Model) handleDeleteConfirmRune(r rune) (tea.Model, tea.Cmd) {
+	m.state.DeletionConfirmInput += string(r)
 	return m, nil
 }
 

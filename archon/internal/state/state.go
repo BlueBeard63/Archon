@@ -39,6 +39,7 @@ const (
 	ScreenNodeConfigSave    Screen = "node_config_save"
 	ScreenSettings          Screen = "settings"
 	ScreenHelp              Screen = "help"
+	ScreenSiteDeleteConfirm Screen = "site_delete_confirm"
 )
 
 // AppState holds all application state for the TUI
@@ -85,6 +86,13 @@ type AppState struct {
 
 	// Edit form initialization tracking
 	EditFormInitialized bool `json:"edit_form_initialized"` // Track if edit form data has been loaded
+
+	// Deletion confirmation state
+	DeletionConfirmPending bool      `json:"deletion_confirm_pending"` // Whether a deletion confirmation is in progress
+	DeletionConfirmInput   string    `json:"deletion_confirm_input"`   // User's typed confirmation input
+	DeletionTargetID       uuid.UUID `json:"deletion_target_id"`       // ID of item pending deletion
+	DeletionTargetName     string    `json:"deletion_target_name"`     // Name of item pending deletion (for comparison)
+	DeletionTargetType     string    `json:"deletion_target_type"`     // Type of item: "site", "domain", "node"
 
 	// Compose deployment state (for create/edit screens)
 	SiteTypeSelection  string `json:"site_type_selection"`  // "container" or "compose"
@@ -188,6 +196,15 @@ func (s *AppState) NavigateTo(screen Screen) {
 		s.ComposeInputMethod = "file"     // Default to file input
 		s.ComposeFilePath = ""
 		s.ComposeContent = ""
+	}
+
+	// Reset deletion confirmation state when leaving confirmation screen
+	if screen != ScreenSiteDeleteConfirm {
+		s.DeletionConfirmPending = false
+		s.DeletionConfirmInput = ""
+		s.DeletionTargetID = uuid.Nil
+		s.DeletionTargetName = ""
+		s.DeletionTargetType = ""
 	}
 }
 

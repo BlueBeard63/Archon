@@ -231,8 +231,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.state.SitesTable.SetCursor(i)
 					}
 
-					// Delete site
-					return m.handleDeleteSite(site.ID)
+					// Navigate to delete confirmation screen
+					return m.initiateDeleteConfirmation(site.ID, site.Name, "site")
 				}
 			}
 

@@ -360,6 +360,44 @@ func (c *HTTPNodeClient) RestartSite(endpoint, apiKey string, siteID uuid.UUID) 
 	return nil
 }
 
+// UpdateSite pulls the latest image and recreates the container
+func (c *HTTPNodeClient) UpdateSite(endpoint, apiKey string, siteID uuid.UUID, dockerUsername, dockerToken string) error {
+	url := fmt.Sprintf("%s/api/v1/sites/%s/update", endpoint, siteID.String())
+
+	// Build request body with credentials (optionally encrypted)
+	body := map[string]interface{}{
+		"docker_username": dockerUsername,
+		"docker_token":    dockerToken,
+	}
+
+	// Encrypt credentials if we have an API key
+	if apiKey != "" && (dockerUsername != "" || dockerToken != "") {
+		encUsername, err := crypto.Encrypt(dockerUsername, apiKey)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt username: %w", err)
+		}
+		encToken, err := crypto.Encrypt(dockerToken, apiKey)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt token: %w", err)
+		}
+		body["docker_username"] = encUsername
+		body["docker_token"] = encToken
+		body["credentials_encrypted"] = true
+	}
+
+	resp, err := c.doRequest("POST", url, apiKey, body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("update failed with status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
 // HealthCheck performs a health check on a node
 func (c *HTTPNodeClient) HealthCheck(endpoint, apiKey string) (*HealthResponse, error) {
 	url := fmt.Sprintf("%s/health", endpoint)
