@@ -56,7 +56,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	r.Use(LoggingMiddleware)
 
 	// Create handlers
-	handlers := NewHandlers(dockerClient, composeExecutor, proxyManager, sslManager, cfg.Server.DataDir)
+	handlers := NewHandlers(dockerClient, composeExecutor, proxyManager, sslManager, cfg.Server.DataDir, cfg.Server.APIKey)
 
 	// Public routes (no auth required)
 	r.Get("/health", handlers.HandleHealth)

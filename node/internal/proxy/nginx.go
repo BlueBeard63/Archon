@@ -30,7 +30,14 @@ func NewNginxManager(cfg *config.ProxyConfig, sslCfg *config.SSLConfig) *NginxMa
 	}
 }
 
-const nginxConfigTemplate = `{{ range $domain, $mapping := .Domains -}}
+const nginxConfigTemplate = `{{- if .BotRedirectEnabled }}
+# Bot detection map
+map $http_user_agent $is_bot {
+    default 0;
+{{ .BotMapEntries }}}
+{{- end }}
+
+{{ range $domain, $mapping := .Domains -}}
 server {
     listen 80;
     server_name {{ $domain }};
@@ -60,6 +67,13 @@ server {
 
     # Proxy configuration
     location / {
+        {{- if $.BotRedirectEnabled }}
+        # Bot redirect for SEO/prerendering
+        if ($is_bot) {
+            return 302 {{ $.BotRedirectURL }}$request_uri;
+        }
+        {{- end }}
+
         proxy_pass http://127.0.0.1:{{ $mapping.Port }};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -91,8 +105,11 @@ type DomainMappingPair struct {
 }
 
 type nginxTemplateData struct {
-	Domains    map[string]DomainMappingPair
-	SSLEnabled bool
+	Domains            map[string]DomainMappingPair
+	SSLEnabled         bool
+	BotRedirectEnabled bool
+	BotRedirectURL     string
+	BotMapEntries      string
 }
 
 // ConfigureForValidation configures Nginx with temporary HTTP vhosts for Let's Encrypt validation
@@ -244,8 +261,15 @@ func (n *NginxManager) Configure(ctx context.Context, site *models.DeployRequest
 
 	// Prepare template data
 	data := nginxTemplateData{
-		Domains:    domainsMap,
-		SSLEnabled: site.SSLEnabled,
+		Domains:            domainsMap,
+		SSLEnabled:         site.SSLEnabled,
+		BotRedirectEnabled: site.BotRedirectEnabled,
+		BotRedirectURL:     site.BotRedirectURL,
+	}
+
+	// Add bot map entries if bot redirect is enabled
+	if site.BotRedirectEnabled {
+		data.BotMapEntries = BuildNginxBotMapEntries(site.BotUserAgents)
 	}
 
 	// Parse template
@@ -335,4 +359,65 @@ func (n *NginxManager) GetInfo(ctx context.Context) (*models.TraefikInfo, error)
 // getDomainMappings extracts domain-port mappings from a DeployRequest
 func getDomainMappings(site *models.DeployRequest) []models.DomainMapping {
 	return site.DomainMappings
+}
+
+// generateNginxConfig generates the nginx config file without running nginx -t
+// This is useful for testing
+func (n *NginxManager) generateNginxConfig(site *models.DeployRequest, certPath, keyPath string) error {
+	// Get domain-port mappings
+	domainMappings := getDomainMappings(site)
+	if len(domainMappings) == 0 {
+		return fmt.Errorf("no domain mappings provided")
+	}
+
+	// Use primary domain for config filename
+	primaryDomain := domainMappings[0].Domain
+
+	// Convert to template data
+	domainsMap := make(map[string]DomainMappingPair)
+	for _, mapping := range domainMappings {
+		hostPort := mapping.Port
+		if mapping.HostPort > 0 {
+			hostPort = mapping.HostPort
+		}
+		domainsMap[mapping.Domain] = DomainMappingPair{
+			Port:     hostPort,
+			CertPath: certPath,
+			KeyPath:  keyPath,
+		}
+	}
+
+	// Prepare template data
+	data := nginxTemplateData{
+		Domains:            domainsMap,
+		SSLEnabled:         site.SSLEnabled && certPath != "" && keyPath != "",
+		BotRedirectEnabled: site.BotRedirectEnabled,
+		BotRedirectURL:     site.BotRedirectURL,
+	}
+
+	// Add bot map entries if bot redirect is enabled
+	if site.BotRedirectEnabled {
+		data.BotMapEntries = BuildNginxBotMapEntries(site.BotUserAgents)
+	}
+
+	// Parse template
+	tmpl, err := template.New("nginx").Parse(nginxConfigTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse nginx template: %w", err)
+	}
+
+	// Create config file
+	configPath := filepath.Join(n.configDir, fmt.Sprintf("%s.conf", primaryDomain))
+	file, err := os.Create(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to create nginx config file: %w", err)
+	}
+	defer file.Close()
+
+	// Execute template
+	if err := tmpl.Execute(file, data); err != nil {
+		return fmt.Errorf("failed to execute nginx template: %w", err)
+	}
+
+	return nil
 }

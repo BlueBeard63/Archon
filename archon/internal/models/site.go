@@ -27,24 +27,29 @@ const (
 )
 
 type Site struct {
-	ID              uuid.UUID         `json:"id" toml:"id"`
-	Name            string            `json:"name" toml:"name"`
-	SiteType        SiteType          `json:"site_type" toml:"site_type"`                     // container or compose (defaults to container)
-	DomainID        uuid.UUID         `json:"domain_id" toml:"domain_id"`                     // Legacy: single domain (kept for backward compatibility)
-	NodeID          uuid.UUID         `json:"node_id" toml:"node_id"`
-	DockerImage     string            `json:"docker_image" toml:"docker_image"`
-	DockerUsername  string            `json:"docker_username,omitempty" toml:"docker_username,omitempty"`
-	DockerToken     string            `json:"docker_token,omitempty" toml:"docker_token,omitempty"`
-	ComposeContent  string            `json:"compose_content,omitempty" toml:"compose_content,omitempty"` // Docker Compose YAML content (for compose sites)
-	EnvironmentVars map[string]string `json:"environment_vars" toml:"environment_vars"`
-	Port            int               `json:"port" toml:"port"`                                           // Legacy: single port (kept for backward compatibility)
-	DomainMappings  []DomainMapping   `json:"domain_mappings,omitempty" toml:"domain_mappings,omitempty"` // New: multiple domain-port mappings
-	SSLEnabled      bool              `json:"ssl_enabled" toml:"ssl_enabled"`
-	SSLEmail        string            `json:"ssl_email,omitempty" toml:"ssl_email,omitempty"` // Email for Let's Encrypt certificate registration
-	ConfigFiles     []ConfigFile      `json:"config_files" toml:"config_files"`
-	Status          SiteStatus        `json:"status" toml:"status"`
-	CreatedAt       time.Time         `json:"created_at" toml:"created_at"`
-	UpdatedAt       time.Time         `json:"updated_at" toml:"updated_at"`
+	ID                 uuid.UUID         `json:"id" toml:"id"`
+	Name               string            `json:"name" toml:"name"`
+	SiteType           SiteType          `json:"site_type" toml:"site_type"`                     // container or compose (defaults to container)
+	DomainID           uuid.UUID         `json:"domain_id" toml:"domain_id"`                     // Legacy: single domain (kept for backward compatibility)
+	NodeID             uuid.UUID         `json:"node_id" toml:"node_id"`
+	DockerImage        string            `json:"docker_image" toml:"docker_image"`
+	DockerCredentialID *uuid.UUID        `json:"docker_credential_id,omitempty" toml:"docker_credential_id,omitempty"` // Reference to Settings.DockerCredentials
+	DockerUsername     string            `json:"docker_username,omitempty" toml:"docker_username,omitempty"`           // Deprecated: use DockerCredentialID
+	DockerToken        string            `json:"docker_token,omitempty" toml:"docker_token,omitempty"`                 // Deprecated: use DockerCredentialID
+	ComposeContent     string            `json:"compose_content,omitempty" toml:"compose_content,omitempty"`           // Docker Compose YAML content (for compose sites)
+	EnvironmentVars    map[string]string `json:"environment_vars" toml:"environment_vars"`
+	Port               int               `json:"port" toml:"port"`                                           // Legacy: single port (kept for backward compatibility)
+	DomainMappings     []DomainMapping   `json:"domain_mappings,omitempty" toml:"domain_mappings,omitempty"` // New: multiple domain-port mappings
+	SSLEnabled         bool              `json:"ssl_enabled" toml:"ssl_enabled"`
+	SSLEmail           string            `json:"ssl_email,omitempty" toml:"ssl_email,omitempty"` // Email for Let's Encrypt certificate registration
+	ConfigFiles        []ConfigFile      `json:"config_files" toml:"config_files"`
+	// Bot redirect configuration
+	BotRedirectEnabled bool     `json:"bot_redirect_enabled" toml:"bot_redirect_enabled"`
+	BotRedirectURL     string   `json:"bot_redirect_url,omitempty" toml:"bot_redirect_url,omitempty"`
+	BotUserAgents      []string `json:"bot_user_agents,omitempty" toml:"bot_user_agents,omitempty"` // If empty, uses defaults
+	Status             SiteStatus        `json:"status" toml:"status"`
+	CreatedAt          time.Time         `json:"created_at" toml:"created_at"`
+	UpdatedAt          time.Time         `json:"updated_at" toml:"updated_at"`
 }
 
 type ConfigFile struct {
@@ -234,4 +239,21 @@ func (dm *DomainMapping) GetEffectiveHostPort() int {
 		return dm.HostPort
 	}
 	return dm.Port
+}
+
+// CredentialLookupFunc is a function that looks up credentials by ID
+// Returns (username, token) for the given credential ID
+type CredentialLookupFunc func(uuid.UUID) (string, string)
+
+// ResolveDockerCredentials resolves the Docker credentials for this site
+// If DockerCredentialID is set, uses the lookup function to get credentials
+// Otherwise falls back to legacy DockerUsername/DockerToken fields
+func (s *Site) ResolveDockerCredentials(lookup CredentialLookupFunc) (username, token string) {
+	// If DockerCredentialID is set, use lookup
+	if s.DockerCredentialID != nil && *s.DockerCredentialID != uuid.Nil {
+		return lookup(*s.DockerCredentialID)
+	}
+
+	// Fall back to legacy fields
+	return s.DockerUsername, s.DockerToken
 }

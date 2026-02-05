@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BlueBeard63/archon/internal/config"
+	"github.com/BlueBeard63/archon/internal/crypto"
 	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -46,40 +48,72 @@ type DeploymentMessage struct {
 type DeploymentProgressCallback func(msg DeploymentMessage)
 
 // DeploySite sends a deployment request to a node
+// Deprecated: Use DeploySiteWithEncryption for encrypted credential handling
 func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, domainName string) error {
+	return c.DeploySiteWithEncryption(endpoint, apiKey, site, domainName, nil)
+}
+
+// DeploySiteWithEncryption sends a deployment request to a node with encrypted credentials
+// If settings is provided, resolves DockerCredentialID to actual credentials
+// Credentials are encrypted using the API key before transmission
+func (c *HTTPNodeClient) DeploySiteWithEncryption(endpoint, apiKey string, site *models.Site, domainName string, settings *config.Settings) error {
+	// Resolve credentials - either from DockerCredentialID or legacy fields
+	username, token := resolveDockerCredentials(site, settings)
+
+	// Encrypt credentials if present
+	var creds DockerCredentials
+	if username != "" || token != "" {
+		encryptedUser, err := crypto.Encrypt(username, apiKey)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt username: %w", err)
+		}
+		encryptedPass, err := crypto.Encrypt(token, apiKey)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt password: %w", err)
+		}
+		creds = DockerCredentials{
+			Username:  encryptedUser,
+			Password:  encryptedPass,
+			Encrypted: true,
+		}
+	}
+
 	// Build deploy request with domain mappings support
 	domainMappings := convertToNodeDomainMappings(site, domainName)
 
 	req := struct {
-		ID              uuid.UUID           `json:"id"`
-		Name            string              `json:"name"`
-		SiteType        models.SiteType     `json:"site_type"`
-		Docker          Docker              `json:"docker"`
-		ComposeContent  string              `json:"compose_content,omitempty"`
-		EnvironmentVars map[string]string   `json:"environment_vars"`
-		DomainMappings  []DomainMapping     `json:"domain_mappings"`
-		SSLEnabled      bool                `json:"ssl_enabled"`
-		SSLEmail        string              `json:"ssl_email,omitempty"`
-		ConfigFiles     []models.ConfigFile `json:"config_files"`
-		TraefikLabels   map[string]string   `json:"traefik_labels,omitempty"`
+		ID                 uuid.UUID           `json:"id"`
+		Name               string              `json:"name"`
+		SiteType           models.SiteType     `json:"site_type"`
+		Docker             Docker              `json:"docker"`
+		ComposeContent     string              `json:"compose_content,omitempty"`
+		EnvironmentVars    map[string]string   `json:"environment_vars"`
+		DomainMappings     []DomainMapping     `json:"domain_mappings"`
+		SSLEnabled         bool                `json:"ssl_enabled"`
+		SSLEmail           string              `json:"ssl_email,omitempty"`
+		ConfigFiles        []models.ConfigFile `json:"config_files"`
+		TraefikLabels      map[string]string   `json:"traefik_labels,omitempty"`
+		BotRedirectEnabled bool                `json:"bot_redirect_enabled,omitempty"`
+		BotRedirectURL     string              `json:"bot_redirect_url,omitempty"`
+		BotUserAgents      []string            `json:"bot_user_agents,omitempty"`
 	}{
 		ID:       site.ID,
 		Name:     site.Name,
 		SiteType: site.GetSiteType(),
 		Docker: Docker{
-			Image: site.DockerImage,
-			Credentials: DockerCredentials{
-				Username: site.DockerUsername,
-				Password: site.DockerToken,
-			},
+			Image:       site.DockerImage,
+			Credentials: creds,
 		},
-		ComposeContent:  site.ComposeContent,
-		EnvironmentVars: site.EnvironmentVars,
-		DomainMappings:  domainMappings,
-		SSLEnabled:      site.SSLEnabled,
-		SSLEmail:        site.SSLEmail,
-		ConfigFiles:     site.ConfigFiles,
-		TraefikLabels:   site.GenerateTraefikLabels(domainName),
+		ComposeContent:     site.ComposeContent,
+		EnvironmentVars:    site.EnvironmentVars,
+		DomainMappings:     domainMappings,
+		SSLEnabled:         site.SSLEnabled,
+		SSLEmail:           site.SSLEmail,
+		ConfigFiles:        site.ConfigFiles,
+		TraefikLabels:      site.GenerateTraefikLabels(domainName),
+		BotRedirectEnabled: site.BotRedirectEnabled,
+		BotRedirectURL:     site.BotRedirectURL,
+		BotUserAgents:      site.BotUserAgents,
 	}
 
 	url := fmt.Sprintf("%s/api/v1/sites/deploy", endpoint)
@@ -94,6 +128,20 @@ func (c *HTTPNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, 
 	}
 
 	return nil
+}
+
+// resolveDockerCredentials resolves Docker credentials from site and settings
+func resolveDockerCredentials(site *models.Site, settings *config.Settings) (username, token string) {
+	// If site has DockerCredentialID and settings are provided, look up the credential
+	if site.DockerCredentialID != nil && settings != nil {
+		cred := settings.GetDockerCredentialByID(*site.DockerCredentialID)
+		if cred != nil {
+			return cred.Username, cred.Token
+		}
+	}
+
+	// Fall back to legacy fields
+	return site.DockerUsername, site.DockerToken
 }
 
 // DeploySiteWebSocket sends a deployment request via WebSocket with progress updates
@@ -125,17 +173,20 @@ func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *mode
 	domainMappings := convertToNodeDomainMappings(site, domainName)
 
 	req := struct {
-		ID              uuid.UUID           `json:"id"`
-		Name            string              `json:"name"`
-		SiteType        models.SiteType     `json:"site_type"`
-		Docker          Docker              `json:"docker"`
-		ComposeContent  string              `json:"compose_content,omitempty"`
-		EnvironmentVars map[string]string   `json:"environment_vars"`
-		DomainMappings  []DomainMapping     `json:"domain_mappings"`
-		SSLEnabled      bool                `json:"ssl_enabled"`
-		SSLEmail        string              `json:"ssl_email,omitempty"`
-		ConfigFiles     []models.ConfigFile `json:"config_files"`
-		TraefikLabels   map[string]string   `json:"traefik_labels,omitempty"`
+		ID                 uuid.UUID           `json:"id"`
+		Name               string              `json:"name"`
+		SiteType           models.SiteType     `json:"site_type"`
+		Docker             Docker              `json:"docker"`
+		ComposeContent     string              `json:"compose_content,omitempty"`
+		EnvironmentVars    map[string]string   `json:"environment_vars"`
+		DomainMappings     []DomainMapping     `json:"domain_mappings"`
+		SSLEnabled         bool                `json:"ssl_enabled"`
+		SSLEmail           string              `json:"ssl_email,omitempty"`
+		ConfigFiles        []models.ConfigFile `json:"config_files"`
+		TraefikLabels      map[string]string   `json:"traefik_labels,omitempty"`
+		BotRedirectEnabled bool                `json:"bot_redirect_enabled,omitempty"`
+		BotRedirectURL     string              `json:"bot_redirect_url,omitempty"`
+		BotUserAgents      []string            `json:"bot_user_agents,omitempty"`
 	}{
 		ID:       site.ID,
 		Name:     site.Name,
@@ -147,13 +198,16 @@ func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *mode
 				Password: site.DockerToken,
 			},
 		},
-		ComposeContent:  site.ComposeContent,
-		EnvironmentVars: site.EnvironmentVars,
-		DomainMappings:  domainMappings,
-		SSLEnabled:      site.SSLEnabled,
-		SSLEmail:        site.SSLEmail,
-		ConfigFiles:     site.ConfigFiles,
-		TraefikLabels:   site.GenerateTraefikLabels(domainName),
+		ComposeContent:     site.ComposeContent,
+		EnvironmentVars:    site.EnvironmentVars,
+		DomainMappings:     domainMappings,
+		SSLEnabled:         site.SSLEnabled,
+		SSLEmail:           site.SSLEmail,
+		ConfigFiles:        site.ConfigFiles,
+		TraefikLabels:      site.GenerateTraefikLabels(domainName),
+		BotRedirectEnabled: site.BotRedirectEnabled,
+		BotRedirectURL:     site.BotRedirectURL,
+		BotUserAgents:      site.BotUserAgents,
 	}
 
 	// Send deployment request as first message

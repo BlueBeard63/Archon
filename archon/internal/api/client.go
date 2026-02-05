@@ -43,8 +43,9 @@ type Docker struct {
 }
 
 type DockerCredentials struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
+	Encrypted bool   `json:"encrypted,omitempty"` // True if credentials are encrypted with KDF
 }
 
 // HealthResponse contains node health information

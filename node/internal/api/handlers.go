@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/BlueBeard63/archon-node/internal/compose"
+	"github.com/BlueBeard63/archon-node/internal/crypto"
 	"github.com/BlueBeard63/archon-node/internal/docker"
 	"github.com/BlueBeard63/archon-node/internal/models"
 	"github.com/BlueBeard63/archon-node/internal/pipeline"
@@ -23,6 +24,7 @@ type Handlers struct {
 	proxyManager    proxy.ProxyManager
 	sslManager      *ssl.Manager
 	dataDir         string
+	apiKey          string // Used for decrypting credentials
 }
 
 func NewHandlers(
@@ -31,6 +33,7 @@ func NewHandlers(
 	proxyManager proxy.ProxyManager,
 	sslManager *ssl.Manager,
 	dataDir string,
+	apiKey string,
 ) *Handlers {
 	return &Handlers{
 		dockerClient:    dockerClient,
@@ -38,6 +41,7 @@ func NewHandlers(
 		proxyManager:    proxyManager,
 		sslManager:      sslManager,
 		dataDir:         dataDir,
+		apiKey:          apiKey,
 	}
 }
 
@@ -75,8 +79,34 @@ func (h *Handlers) HandleDeploySite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Log the received request for debugging
-	reqJSON, _ := json.MarshalIndent(req, "", "  ")
+	// Decrypt credentials if they are encrypted
+	if req.Docker.Credentials.Encrypted && h.apiKey != "" {
+		decryptedUser, err := crypto.Decrypt(req.Docker.Credentials.Username, h.apiKey)
+		if err != nil {
+			log.Printf("[ERROR] Failed to decrypt username: %v", err)
+			respondError(w, http.StatusBadRequest, "Failed to decrypt credentials")
+			return
+		}
+		decryptedPass, err := crypto.Decrypt(req.Docker.Credentials.Password, h.apiKey)
+		if err != nil {
+			log.Printf("[ERROR] Failed to decrypt password: %v", err)
+			respondError(w, http.StatusBadRequest, "Failed to decrypt credentials")
+			return
+		}
+		req.Docker.Credentials.Username = decryptedUser
+		req.Docker.Credentials.Password = decryptedPass
+		req.Docker.Credentials.Encrypted = false
+	}
+
+	// Log the received request for debugging (with credentials redacted)
+	reqCopy := req
+	if reqCopy.Docker.Credentials.Username != "" {
+		reqCopy.Docker.Credentials.Username = "[REDACTED]"
+	}
+	if reqCopy.Docker.Credentials.Password != "" {
+		reqCopy.Docker.Credentials.Password = "[REDACTED]"
+	}
+	reqJSON, _ := json.MarshalIndent(reqCopy, "", "  ")
 	log.Printf("========================================")
 	log.Printf("Received Deploy Request:")
 	log.Printf("----------------------------------------")

@@ -11,6 +11,7 @@ require (
 	github.com/lrstanley/bubblezone v1.0.0
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/crypto v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -37,6 +38,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	golang.org/x/sys v0.39.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
+	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/text v0.33.0 // indirect
 )
