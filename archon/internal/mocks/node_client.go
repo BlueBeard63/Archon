@@ -2,6 +2,7 @@ package mocks
 
 import (
 	"github.com/BlueBeard63/archon/internal/api"
+	"github.com/BlueBeard63/archon/internal/config"
 	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -19,8 +20,8 @@ func (m *MockNodeClient) DeploySite(endpoint, apiKey string, site *models.Site, 
 }
 
 // DeploySiteWebSocket mocks the DeploySiteWebSocket method
-func (m *MockNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *models.Site, domainName string, progressCallback api.DeploymentProgressCallback) error {
-	args := m.Called(endpoint, apiKey, site, domainName, progressCallback)
+func (m *MockNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *models.Site, domainName string, settings *config.Settings, progressCallback api.DeploymentProgressCallback) error {
+	args := m.Called(endpoint, apiKey, site, domainName, settings, progressCallback)
 	return args.Error(0)
 }
 

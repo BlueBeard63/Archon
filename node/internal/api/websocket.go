@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/BlueBeard63/archon-node/internal/crypto"
 	"github.com/BlueBeard63/archon-node/internal/models"
 	"github.com/BlueBeard63/archon-node/internal/ssl"
 )
@@ -77,8 +78,34 @@ func (h *Handlers) HandleDeploySiteWebSocket(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Log the received request
-	reqJSON, _ := json.MarshalIndent(req, "", "  ")
+	// Decrypt credentials if they are encrypted
+	if req.Docker.Credentials.Encrypted && h.apiKey != "" {
+		decryptedUser, err := crypto.Decrypt(req.Docker.Credentials.Username, h.apiKey)
+		if err != nil {
+			log.Printf("[ERROR] Failed to decrypt username: %v", err)
+			sendError(conn, "Failed to decrypt credentials")
+			return
+		}
+		decryptedPass, err := crypto.Decrypt(req.Docker.Credentials.Password, h.apiKey)
+		if err != nil {
+			log.Printf("[ERROR] Failed to decrypt password: %v", err)
+			sendError(conn, "Failed to decrypt credentials")
+			return
+		}
+		req.Docker.Credentials.Username = decryptedUser
+		req.Docker.Credentials.Password = decryptedPass
+		req.Docker.Credentials.Encrypted = false
+	}
+
+	// Log the received request (with credentials redacted)
+	reqCopy := req
+	if reqCopy.Docker.Credentials.Username != "" {
+		reqCopy.Docker.Credentials.Username = "[REDACTED]"
+	}
+	if reqCopy.Docker.Credentials.Password != "" {
+		reqCopy.Docker.Credentials.Password = "[REDACTED]"
+	}
+	reqJSON, _ := json.MarshalIndent(reqCopy, "", "  ")
 	log.Printf("========================================")
 	log.Printf("WebSocket Deploy Request:")
 	log.Printf("----------------------------------------")

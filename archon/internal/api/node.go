@@ -145,11 +145,34 @@ func resolveDockerCredentials(site *models.Site, settings *config.Settings) (use
 }
 
 // DeploySiteWebSocket sends a deployment request via WebSocket with progress updates
-func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *models.Site, domainName string, progressCallback DeploymentProgressCallback) error {
+// If settings is provided, resolves DockerCredentialID to actual credentials
+// Credentials are encrypted using the API key before transmission
+func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *models.Site, domainName string, settings *config.Settings, progressCallback DeploymentProgressCallback) error {
 	// Convert HTTP/HTTPS endpoint to WebSocket URL
 	wsURL, err := convertToWebSocketURL(endpoint, "/api/v1/sites/deploy/ws")
 	if err != nil {
 		return fmt.Errorf("failed to convert to WebSocket URL: %w", err)
+	}
+
+	// Resolve credentials - either from DockerCredentialID or legacy fields
+	username, token := resolveDockerCredentials(site, settings)
+
+	// Encrypt credentials if present
+	var creds DockerCredentials
+	if username != "" || token != "" {
+		encryptedUser, err := crypto.Encrypt(username, apiKey)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt username: %w", err)
+		}
+		encryptedPass, err := crypto.Encrypt(token, apiKey)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt password: %w", err)
+		}
+		creds = DockerCredentials{
+			Username:  encryptedUser,
+			Password:  encryptedPass,
+			Encrypted: true,
+		}
 	}
 
 	// Establish WebSocket connection with Authorization header
@@ -192,11 +215,8 @@ func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *mode
 		Name:     site.Name,
 		SiteType: site.GetSiteType(),
 		Docker: Docker{
-			Image: site.DockerImage,
-			Credentials: DockerCredentials{
-				Username: site.DockerUsername,
-				Password: site.DockerToken,
-			},
+			Image:       site.DockerImage,
+			Credentials: creds,
 		},
 		ComposeContent:     site.ComposeContent,
 		EnvironmentVars:    site.EnvironmentVars,

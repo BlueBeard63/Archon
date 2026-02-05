@@ -991,6 +991,11 @@ func (m Model) spawnDeploySite(siteID uuid.UUID) tea.Cmd {
 			}
 		}
 
+		// Build settings with Docker credentials for credential resolution
+		settings := &config.Settings{
+			DockerCredentials: convertStateDockerCredentials(m.state.DockerCredentials),
+		}
+
 		// Deploy using WebSocket with progress callback
 		// Use the first domain for deployment (the deployment handles all domains)
 		err := httpClient.DeploySiteWebSocket(
@@ -998,6 +1003,7 @@ func (m Model) spawnDeploySite(siteID uuid.UUID) tea.Cmd {
 			node.APIKey,
 			site,
 			fullDomains[0],
+			settings,
 			nil, // No progress callback for now - just use WebSocket for timeout prevention
 		)
 
