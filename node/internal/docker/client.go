@@ -197,6 +197,14 @@ func (c *Client) DeploySite(ctx context.Context, req *models.DeployRequest, data
 		hostConfig.Binds = binds
 	}
 
+	// Handle volume bind mounts (read-write)
+	for _, vol := range req.Volumes {
+		if err := os.MkdirAll(vol.HostPath, 0755); err != nil {
+			log.Printf("[WARNING] Failed to create volume host path %s: %v", vol.HostPath, err)
+		}
+		hostConfig.Binds = append(hostConfig.Binds, fmt.Sprintf("%s:%s", vol.HostPath, vol.ContainerPath))
+	}
+
 	// Stop and remove existing container if it exists
 	containers, err := c.cli.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {

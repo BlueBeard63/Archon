@@ -92,6 +92,7 @@ func (c *HTTPNodeClient) DeploySiteWithEncryption(endpoint, apiKey string, site 
 		SSLEnabled         bool                `json:"ssl_enabled"`
 		SSLEmail           string              `json:"ssl_email,omitempty"`
 		ConfigFiles        []models.ConfigFile `json:"config_files"`
+		Volumes            []Volume            `json:"volumes,omitempty"`
 		TraefikLabels      map[string]string   `json:"traefik_labels,omitempty"`
 		BotRedirectEnabled bool                `json:"bot_redirect_enabled,omitempty"`
 		BotRedirectURL     string              `json:"bot_redirect_url,omitempty"`
@@ -110,6 +111,7 @@ func (c *HTTPNodeClient) DeploySiteWithEncryption(endpoint, apiKey string, site 
 		SSLEnabled:         site.SSLEnabled,
 		SSLEmail:           site.SSLEmail,
 		ConfigFiles:        site.ConfigFiles,
+		Volumes:            convertToNodeVolumes(site),
 		TraefikLabels:      site.GenerateTraefikLabels(domainName),
 		BotRedirectEnabled: site.BotRedirectEnabled,
 		BotRedirectURL:     site.BotRedirectURL,
@@ -206,6 +208,7 @@ func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *mode
 		SSLEnabled         bool                `json:"ssl_enabled"`
 		SSLEmail           string              `json:"ssl_email,omitempty"`
 		ConfigFiles        []models.ConfigFile `json:"config_files"`
+		Volumes            []Volume            `json:"volumes,omitempty"`
 		TraefikLabels      map[string]string   `json:"traefik_labels,omitempty"`
 		BotRedirectEnabled bool                `json:"bot_redirect_enabled,omitempty"`
 		BotRedirectURL     string              `json:"bot_redirect_url,omitempty"`
@@ -224,6 +227,7 @@ func (c *HTTPNodeClient) DeploySiteWebSocket(endpoint, apiKey string, site *mode
 		SSLEnabled:         site.SSLEnabled,
 		SSLEmail:           site.SSLEmail,
 		ConfigFiles:        site.ConfigFiles,
+		Volumes:            convertToNodeVolumes(site),
 		TraefikLabels:      site.GenerateTraefikLabels(domainName),
 		BotRedirectEnabled: site.BotRedirectEnabled,
 		BotRedirectURL:     site.BotRedirectURL,
@@ -599,6 +603,12 @@ type DomainMapping struct {
 	HostPort int    `json:"host_port,omitempty"`   // Host port (optional, defaults to Port if not specified)
 }
 
+// Volume represents a bind mount volume for node API requests
+type Volume struct {
+	HostPath      string `json:"host_path"`
+	ContainerPath string `json:"container_path"`
+}
+
 // convertToNodeDomainMappings converts site domain mappings to node API format
 // Resolves domain UUIDs to actual domain names from the site's DomainMappings
 func convertToNodeDomainMappings(site *models.Site, domainName string) []DomainMapping {
@@ -634,4 +644,19 @@ func convertToNodeDomainMappings(site *models.Site, domainName string) []DomainM
 		})
 	}
 	return mappings
+}
+
+// convertToNodeVolumes converts site volumes to node API format
+func convertToNodeVolumes(site *models.Site) []Volume {
+	if len(site.Volumes) == 0 {
+		return nil
+	}
+	volumes := make([]Volume, 0, len(site.Volumes))
+	for _, v := range site.Volumes {
+		volumes = append(volumes, Volume{
+			HostPath:      v.HostPath,
+			ContainerPath: v.ContainerPath,
+		})
+	}
+	return volumes
 }

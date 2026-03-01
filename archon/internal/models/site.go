@@ -43,6 +43,7 @@ type Site struct {
 	SSLEnabled         bool              `json:"ssl_enabled" toml:"ssl_enabled"`
 	SSLEmail           string            `json:"ssl_email,omitempty" toml:"ssl_email,omitempty"` // Email for Let's Encrypt certificate registration
 	ConfigFiles        []ConfigFile      `json:"config_files" toml:"config_files"`
+	Volumes            []Volume          `json:"volumes,omitempty" toml:"volumes,omitempty"`
 	// Bot redirect configuration
 	BotRedirectEnabled bool     `json:"bot_redirect_enabled" toml:"bot_redirect_enabled"`
 	BotRedirectURL     string   `json:"bot_redirect_url,omitempty" toml:"bot_redirect_url,omitempty"`
@@ -55,6 +56,12 @@ type Site struct {
 type ConfigFile struct {
 	Name          string `json:"name" toml:"name"`
 	Content       string `json:"content" toml:"content"`
+	ContainerPath string `json:"container_path" toml:"container_path"`
+}
+
+// Volume represents a bind mount volume mapping from host to container
+type Volume struct {
+	HostPath      string `json:"host_path" toml:"host_path"`
 	ContainerPath string `json:"container_path" toml:"container_path"`
 }
 
@@ -101,6 +108,7 @@ func NewSite(name string, domainID, nodeID uuid.UUID, dockerImage string, port i
 		Port:            port, // Set legacy field for backward compatibility
 		SSLEnabled:      true, // Default to SSL enabled
 		ConfigFiles:     []ConfigFile{},
+		Volumes:         []Volume{},
 		Status:          SiteStatusInactive,
 		CreatedAt:       now,
 		UpdatedAt:       now,

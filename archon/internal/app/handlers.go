@@ -437,6 +437,11 @@ func (m Model) handleSiteCreateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDomainMappingInput(msg)
 	}
 
+	// Handle volume input if focused on volume section
+	if m.state.CurrentFieldIndex == 300 {
+		return m.handleVolumeInput(msg)
+	}
+
 	// Normal field input handling
 	switch msg.Type {
 	case tea.KeyUp:
@@ -646,6 +651,11 @@ func (m Model) handleSiteEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDomainMappingInput(msg)
 	}
 
+	// Handle volume input if focused on volume section
+	if m.state.CurrentFieldIndex == 300 {
+		return m.handleVolumeInput(msg)
+	}
+
 	// Normal field input handling
 	switch msg.Type {
 	case tea.KeyUp:
@@ -810,16 +820,33 @@ func (m Model) handleDomainMappingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.state.DomainMappingFocusedField = 2
 			m.state.CursorPosition = len(m.state.DomainMappingPairs[pairIdx].Port)
 		} else {
-			// Move from port to next pair's subdomain, or wrap to first pair
+			// Move from port to next pair's subdomain, or move to volumes/wrap
 			if pairIdx < len(m.state.DomainMappingPairs)-1 {
 				m.state.DomainMappingFocusedPair++
 				m.state.DomainMappingFocusedField = 0
 				m.state.CursorPosition = len(m.state.DomainMappingPairs[m.state.DomainMappingFocusedPair].Subdomain)
 			} else {
-				// Wrap to first pair (ENV vars now on separate screen)
-				m.state.DomainMappingFocusedPair = 0
-				m.state.DomainMappingFocusedField = 0
-				m.state.CursorPosition = len(m.state.DomainMappingPairs[0].Subdomain)
+				// Check if container site -> move to volumes section
+				isContainerSite := m.state.SiteTypeSelection != "compose"
+				if m.state.CurrentScreen == state.ScreenSiteEdit {
+					site := m.state.GetSiteByID(m.state.SelectedSiteID)
+					isContainerSite = site != nil && site.GetSiteType() != models.SiteTypeCompose
+				}
+				if isContainerSite {
+					m.state.CurrentFieldIndex = 300
+					m.state.VolumeFocusedPair = 0
+					m.state.VolumeFocusedField = 0
+					if len(m.state.VolumePairs) > 0 {
+						m.state.CursorPosition = len(m.state.VolumePairs[0].HostPath)
+					} else {
+						m.state.CursorPosition = 0
+					}
+				} else {
+					// Compose: wrap to first pair
+					m.state.DomainMappingFocusedPair = 0
+					m.state.DomainMappingFocusedField = 0
+					m.state.CursorPosition = len(m.state.DomainMappingPairs[0].Subdomain)
+				}
 			}
 		}
 		return m, nil
@@ -938,6 +965,163 @@ func (m Model) handleDomainMappingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Editing port
 			value := m.state.DomainMappingPairs[pairIdx].Port
 			m.state.DomainMappingPairs[pairIdx].Port = value[:cursor] + string(msg.Runes) + value[cursor:]
+		}
+		m.state.CursorPosition++
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// handleVolumeInput handles keyboard input for volume bind mount fields
+func (m Model) handleVolumeInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if len(m.state.VolumePairs) == 0 {
+		return m, nil
+	}
+
+	pairIdx := m.state.VolumeFocusedPair
+	if pairIdx >= len(m.state.VolumePairs) {
+		pairIdx = 0
+		m.state.VolumeFocusedPair = 0
+	}
+
+	switch msg.Type {
+	case tea.KeyTab:
+		// Switch between host path and container path, or move to next pair
+		if m.state.VolumeFocusedField == 0 {
+			// Move from host path to container path
+			m.state.VolumeFocusedField = 1
+			m.state.CursorPosition = len(m.state.VolumePairs[pairIdx].ContainerPath)
+		} else {
+			// Move from container path to next pair's host path, or wrap
+			if pairIdx < len(m.state.VolumePairs)-1 {
+				m.state.VolumeFocusedPair++
+				m.state.VolumeFocusedField = 0
+				m.state.CursorPosition = len(m.state.VolumePairs[m.state.VolumeFocusedPair].HostPath)
+			} else {
+				// Wrap to first pair
+				m.state.VolumeFocusedPair = 0
+				m.state.VolumeFocusedField = 0
+				m.state.CursorPosition = len(m.state.VolumePairs[0].HostPath)
+			}
+		}
+		return m, nil
+
+	case tea.KeyShiftTab:
+		// Move backwards
+		if m.state.VolumeFocusedField == 1 {
+			// Move from container path to host path
+			m.state.VolumeFocusedField = 0
+			m.state.CursorPosition = len(m.state.VolumePairs[pairIdx].HostPath)
+		} else {
+			// Move from host path to previous pair's container path, or back to domain mappings
+			if pairIdx > 0 {
+				m.state.VolumeFocusedPair--
+				m.state.VolumeFocusedField = 1
+				m.state.CursorPosition = len(m.state.VolumePairs[m.state.VolumeFocusedPair].ContainerPath)
+			} else {
+				// Back to domain mappings section (last pair, port field)
+				m.state.CurrentFieldIndex = 200
+				if len(m.state.DomainMappingPairs) > 0 {
+					m.state.DomainMappingFocusedPair = len(m.state.DomainMappingPairs) - 1
+					m.state.DomainMappingFocusedField = 2 // Port field
+					m.state.CursorPosition = len(m.state.DomainMappingPairs[m.state.DomainMappingFocusedPair].Port)
+				}
+			}
+		}
+		return m, nil
+
+	case tea.KeyEnter:
+		// Submit form based on current screen
+		if m.state.CurrentScreen == state.ScreenSiteEdit {
+			return m.handleSiteEditSubmit()
+		}
+		return m.handleSiteCreateSubmit()
+
+	case tea.KeyEsc:
+		// Go back to last regular field
+		m.state.CurrentFieldIndex = len(m.state.FormFields) - 1
+		return m, nil
+
+	case tea.KeyLeft:
+		if m.state.CursorPosition > 0 {
+			m.state.CursorPosition--
+		}
+		return m, nil
+
+	case tea.KeyRight:
+		currentValue := ""
+		if m.state.VolumeFocusedField == 0 {
+			currentValue = m.state.VolumePairs[pairIdx].HostPath
+		} else {
+			currentValue = m.state.VolumePairs[pairIdx].ContainerPath
+		}
+		if m.state.CursorPosition < len(currentValue) {
+			m.state.CursorPosition++
+		}
+		return m, nil
+
+	case tea.KeyHome:
+		m.state.CursorPosition = 0
+		return m, nil
+
+	case tea.KeyEnd:
+		if m.state.VolumeFocusedField == 0 {
+			m.state.CursorPosition = len(m.state.VolumePairs[pairIdx].HostPath)
+		} else {
+			m.state.CursorPosition = len(m.state.VolumePairs[pairIdx].ContainerPath)
+		}
+		return m, nil
+
+	case tea.KeyBackspace:
+		cursor := m.state.CursorPosition
+		if cursor > 0 {
+			if m.state.VolumeFocusedField == 0 {
+				value := m.state.VolumePairs[pairIdx].HostPath
+				m.state.VolumePairs[pairIdx].HostPath = value[:cursor-1] + value[cursor:]
+			} else {
+				value := m.state.VolumePairs[pairIdx].ContainerPath
+				m.state.VolumePairs[pairIdx].ContainerPath = value[:cursor-1] + value[cursor:]
+			}
+			m.state.CursorPosition--
+		}
+		return m, nil
+
+	case tea.KeyDelete:
+		cursor := m.state.CursorPosition
+		if m.state.VolumeFocusedField == 0 {
+			value := m.state.VolumePairs[pairIdx].HostPath
+			if cursor < len(value) {
+				m.state.VolumePairs[pairIdx].HostPath = value[:cursor] + value[cursor+1:]
+			}
+		} else {
+			value := m.state.VolumePairs[pairIdx].ContainerPath
+			if cursor < len(value) {
+				m.state.VolumePairs[pairIdx].ContainerPath = value[:cursor] + value[cursor+1:]
+			}
+		}
+		return m, nil
+
+	case tea.KeySpace:
+		cursor := m.state.CursorPosition
+		if m.state.VolumeFocusedField == 0 {
+			value := m.state.VolumePairs[pairIdx].HostPath
+			m.state.VolumePairs[pairIdx].HostPath = value[:cursor] + " " + value[cursor:]
+		} else {
+			value := m.state.VolumePairs[pairIdx].ContainerPath
+			m.state.VolumePairs[pairIdx].ContainerPath = value[:cursor] + " " + value[cursor:]
+		}
+		m.state.CursorPosition++
+		return m, nil
+
+	case tea.KeyRunes:
+		cursor := m.state.CursorPosition
+		if m.state.VolumeFocusedField == 0 {
+			value := m.state.VolumePairs[pairIdx].HostPath
+			m.state.VolumePairs[pairIdx].HostPath = value[:cursor] + string(msg.Runes) + value[cursor:]
+		} else {
+			value := m.state.VolumePairs[pairIdx].ContainerPath
+			m.state.VolumePairs[pairIdx].ContainerPath = value[:cursor] + string(msg.Runes) + value[cursor:]
 		}
 		m.state.CursorPosition++
 		return m, nil
@@ -2598,6 +2782,18 @@ func (m Model) handleSiteCreateSubmit() (tea.Model, tea.Cmd) {
 				})
 			}
 		}
+
+		// Collect volumes from VolumePairs (skip empty pairs)
+		for _, vp := range m.state.VolumePairs {
+			hostPath := strings.TrimSpace(vp.HostPath)
+			containerPath := strings.TrimSpace(vp.ContainerPath)
+			if hostPath != "" && containerPath != "" {
+				site.Volumes = append(site.Volumes, models.Volume{
+					HostPath:      hostPath,
+					ContainerPath: containerPath,
+				})
+			}
+		}
 	}
 
 	m.state.Sites = append(m.state.Sites, *site)
@@ -2783,6 +2979,19 @@ func (m Model) handleSiteEditSubmit() (tea.Model, tea.Cmd) {
 						ContainerPath: "/config/" + filename,
 					},
 				}
+			}
+		}
+
+		// Update volumes from VolumePairs (skip empty pairs)
+		m.state.Sites[siteIndex].Volumes = []models.Volume{}
+		for _, vp := range m.state.VolumePairs {
+			hostPath := strings.TrimSpace(vp.HostPath)
+			containerPath := strings.TrimSpace(vp.ContainerPath)
+			if hostPath != "" && containerPath != "" {
+				m.state.Sites[siteIndex].Volumes = append(m.state.Sites[siteIndex].Volumes, models.Volume{
+					HostPath:      hostPath,
+					ContainerPath: containerPath,
+				})
 			}
 		}
 	}

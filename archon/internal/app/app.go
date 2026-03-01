@@ -436,6 +436,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			// Check volume clicks (for site creation and editing)
+			if m.state.CurrentScreen == state.ScreenSiteCreate || m.state.CurrentScreen == state.ScreenSiteEdit {
+				for i := 0; i < len(m.state.VolumePairs); i++ {
+					// Add button
+					addZone := fmt.Sprintf("volume-add:%d", i)
+					if m.zone.Get(addZone).InBounds(msg) {
+						newPair := state.VolumePair{HostPath: "", ContainerPath: ""}
+						m.state.VolumePairs = append(m.state.VolumePairs[:i+1], append([]state.VolumePair{newPair}, m.state.VolumePairs[i+1:]...)...)
+						m.state.CurrentFieldIndex = 300
+						m.state.VolumeFocusedPair = i + 1
+						m.state.VolumeFocusedField = 0
+						m.state.CursorPosition = 0
+						return m, nil
+					}
+
+					// Remove button
+					removeZone := fmt.Sprintf("volume-remove:%d", i)
+					if m.zone.Get(removeZone).InBounds(msg) {
+						if len(m.state.VolumePairs) > 1 {
+							m.state.VolumePairs = append(m.state.VolumePairs[:i], m.state.VolumePairs[i+1:]...)
+							if m.state.VolumeFocusedPair >= len(m.state.VolumePairs) {
+								m.state.VolumeFocusedPair = len(m.state.VolumePairs) - 1
+							}
+						}
+						return m, nil
+					}
+
+					// Host path field
+					hostZone := fmt.Sprintf("volume-host:%d", i)
+					if m.zone.Get(hostZone).InBounds(msg) {
+						m.state.CurrentFieldIndex = 300
+						m.state.VolumeFocusedPair = i
+						m.state.VolumeFocusedField = 0
+						m.state.CursorPosition = len(m.state.VolumePairs[i].HostPath)
+						return m, nil
+					}
+
+					// Container path field
+					containerZone := fmt.Sprintf("volume-container:%d", i)
+					if m.zone.Get(containerZone).InBounds(msg) {
+						m.state.CurrentFieldIndex = 300
+						m.state.VolumeFocusedPair = i
+						m.state.VolumeFocusedField = 1
+						m.state.CursorPosition = len(m.state.VolumePairs[i].ContainerPath)
+						return m, nil
+					}
+				}
+			}
+
 			// Check ENV var clicks (for site creation and editing)
 			if m.state.CurrentScreen == state.ScreenSiteCreate || m.state.CurrentScreen == state.ScreenSiteEdit {
 				for i := 0; i < len(m.state.EnvVarPairs); i++ {
@@ -638,7 +687,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state.Nodes[i].DockerInfo = msg.Result.Docker
 					m.state.Nodes[i].TraefikInfo = msg.Result.Traefik
 					now := time.Now()
-					m.state.Nodes[i].LastHealthCheck = &now
+					m.state.Nodes[i].LastHealthCheck = now
 					nodeName = m.state.Nodes[i].Name
 					break
 				}
@@ -1305,7 +1354,7 @@ func (m Model) spawnNodeHealthCheck(nodeID uuid.UUID) tea.Cmd {
 		node.DockerInfo = health.Docker
 		node.TraefikInfo = health.Traefik
 		now := time.Now()
-		node.LastHealthCheck = &now
+		node.LastHealthCheck = now
 
 		return NodeHealthCheckResultMsg{
 			NodeID: nodeID,
