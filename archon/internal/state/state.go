@@ -92,6 +92,11 @@ type AppState struct {
 	DomainMappingFocusedPair int                 `json:"domain_mapping_focused_pair"` // Which mapping is currently focused
 	DomainMappingFocusedField int               `json:"domain_mapping_focused_field"` // 0=subdomain, 1=domain, 2=port
 
+	// Volume bind mounts for container sites
+	VolumePairs        []VolumePair `json:"volume_pairs"`
+	VolumeFocusedPair  int          `json:"volume_focused_pair"`
+	VolumeFocusedField int          `json:"volume_focused_field"` // 0=host_path, 1=container_path
+
 	// Edit form initialization tracking
 	EditFormInitialized bool `json:"edit_form_initialized"` // Track if edit form data has been loaded
 
@@ -148,6 +153,12 @@ type DockerCredential struct {
 	Registry string    `json:"registry"` // Registry URL (e.g., "ghcr.io", "docker.io")
 	Username string    `json:"username"`
 	Token    string    `json:"token"`
+}
+
+// VolumePair represents a volume bind mount entry in the UI
+type VolumePair struct {
+	HostPath      string `json:"host_path"`
+	ContainerPath string `json:"container_path"`
 }
 
 // DomainMappingPair represents a port-to-domain mapping entry in the UI
@@ -218,6 +229,9 @@ func (s *AppState) NavigateTo(screen Screen) {
 		s.DomainMappingPairs = []DomainMappingPair{}
 		s.DomainMappingFocusedPair = 0
 		s.DomainMappingFocusedField = 0
+		s.VolumePairs = []VolumePair{}
+		s.VolumeFocusedPair = 0
+		s.VolumeFocusedField = 0
 		s.SiteTypeSelection = "container" // Default to container
 		s.ComposeInputMethod = "file"     // Default to file input
 		s.ComposeFilePath = ""

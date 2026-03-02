@@ -477,7 +477,7 @@ func RenderNodeDetails(s *state.AppState, nodeID string) string {
 	}
 
 	// Last health check
-	if node.LastHealthCheck != nil {
+	if !node.LastHealthCheck.IsZero() {
 		content += fmt.Sprintf("\nLast Health Check: %s\n", node.LastHealthCheck.Format("2006-01-02 15:04:05"))
 	}
 

@@ -38,6 +38,7 @@ type DeployRequest struct {
 	SSLCert         string            `json:"ssl_cert,omitempty"`  // Base64 encoded cert
 	SSLKey          string            `json:"ssl_key,omitempty"`   // Base64 encoded key
 	ConfigFiles     []ConfigFile      `json:"config_files"`
+	Volumes         []Volume          `json:"volumes,omitempty"`
 	TraefikLabels   map[string]string `json:"traefik_labels,omitempty"`
 	// Bot redirect configuration
 	BotRedirectEnabled bool     `json:"bot_redirect_enabled,omitempty"`
@@ -92,6 +93,12 @@ type DockerCredentials struct {
 type ConfigFile struct {
 	Name          string `json:"name"`
 	Content       string `json:"content"`
+	ContainerPath string `json:"container_path"`
+}
+
+// Volume represents a bind mount volume mapping from host to container
+type Volume struct {
+	HostPath      string `json:"host_path"`
 	ContainerPath string `json:"container_path"`
 }
 

@@ -34,7 +34,7 @@ type Node struct {
 	Status          NodeStatus   `json:"status" toml:"status"`
 	DockerInfo      *DockerInfo  `json:"docker_info,omitempty" toml:"docker_info,omitempty"`
 	TraefikInfo     *TraefikInfo `json:"traefik_info,omitempty" toml:"traefik_info,omitempty"`
-	LastHealthCheck *time.Time   `json:"last_health_check,omitempty" toml:"last_health_check,omitempty"`
+	LastHealthCheck time.Time    `json:"last_health_check,omitempty" toml:"last_health_check"`
 }
 
 type DockerInfo struct {

@@ -304,8 +304,8 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		s.FormFields = []string{"", "", "", "", "", ""}
 	}
 
-	// Only reset field index if it's out of bounds (-1 is valid for site type selector)
-	if s.CurrentFieldIndex < -1 || s.CurrentFieldIndex > 200 {
+	// Only reset field index if it's out of bounds (-1 is valid for site type selector, 200=domain mappings, 300=volumes)
+	if s.CurrentFieldIndex < -1 || (s.CurrentFieldIndex > 5 && s.CurrentFieldIndex != 200 && s.CurrentFieldIndex != 300) {
 		s.CurrentFieldIndex = -1 // Start at site type selector
 	}
 
@@ -440,6 +440,14 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 	domainMappingsSection := renderDomainMappingsSection(s, zm)
 	fields += "\n" + domainMappingsSection
 
+	// Render volumes section for container sites
+	if !isCompose {
+		if len(s.VolumePairs) == 0 {
+			s.VolumePairs = []state.VolumePair{{HostPath: "", ContainerPath: ""}}
+		}
+		fields += "\n" + renderVolumesSection(s, zm)
+	}
+
 	helpText := "\nTab/Shift+Tab to navigate, Enter to create, Esc to cancel"
 	switch s.CurrentFieldIndex {
 	case -1:
@@ -479,6 +487,9 @@ func RenderSiteCreateWithZones(s *state.AppState, zm *zone.Manager) string {
 		} else {
 			helpText = "\nSelect subdomain/domain/port, Tab to switch fields, +/- buttons to add/remove mappings"
 		}
+	case 300:
+		// Special index for volumes
+		helpText = "\nHost path on server, Container path inside container • Tab to switch fields • +/- to add/remove"
 	}
 
 	help := helpStyle.Render(helpText)
@@ -566,6 +577,20 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 			}
 		} else {
 			s.DomainMappingPairs = []state.DomainMappingPair{{Subdomain: "", DomainName: "", DomainID: "", Port: "8080"}}
+		}
+
+		// Initialize volume pairs from current site data (only for container sites)
+		s.VolumePairs = []state.VolumePair{}
+		if !isCompose && len(site.Volumes) > 0 {
+			for _, vol := range site.Volumes {
+				s.VolumePairs = append(s.VolumePairs, state.VolumePair{
+					HostPath:      vol.HostPath,
+					ContainerPath: vol.ContainerPath,
+				})
+			}
+		}
+		if len(s.VolumePairs) == 0 {
+			s.VolumePairs = []state.VolumePair{{HostPath: "", ContainerPath: ""}}
 		}
 
 		// Initialize ENV vars from current site data (only for container sites)
@@ -679,6 +704,14 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	domainMappingsSection := renderDomainMappingsSection(s, zm)
 	fields += "\n" + domainMappingsSection
 
+	// Render volumes section for container sites
+	if !isCompose {
+		if len(s.VolumePairs) == 0 {
+			s.VolumePairs = []state.VolumePair{{HostPath: "", ContainerPath: ""}}
+		}
+		fields += "\n" + renderVolumesSection(s, zm)
+	}
+
 	// Add ENV vars hint (only for container deployments)
 	if !isCompose {
 		fields += "\n" + helpStyle.Render("Press 'v' to edit environment variables")
@@ -712,6 +745,9 @@ func RenderSiteEditWithZones(s *state.AppState, zm *zone.Manager) string {
 	case 200:
 		// Special index for domain mappings
 		helpText = "\nSelect subdomain/domain/port, Tab to switch fields, +/- buttons to add/remove mappings"
+	case 300:
+		// Special index for volumes
+		helpText = "\nHost path on server, Container path inside container • Tab to switch fields • +/- to add/remove"
 	}
 
 	help := helpStyle.Render(helpText)
@@ -885,6 +921,81 @@ func renderDomainMappingsSection(s *state.AppState, zm *zone.Manager) string {
 				return d.Name
 			})
 			section.WriteString(dropdownOptions + "\n")
+		}
+	}
+
+	return section.String()
+}
+
+// renderVolumesSection renders the volume bind mounts section with +/- buttons
+func renderVolumesSection(s *state.AppState, zm *zone.Manager) string {
+	var section strings.Builder
+
+	section.WriteString("Volumes (Bind Mounts):\n")
+
+	for i, pair := range s.VolumePairs {
+		// Determine if this pair is focused
+		isFocused := s.CurrentFieldIndex == 300 && s.VolumeFocusedPair == i
+
+		// Render host path field
+		hostValue := pair.HostPath
+		if isFocused && s.VolumeFocusedField == 0 {
+			cursor := s.CursorPosition
+			if cursor < 0 {
+				cursor = 0
+			}
+			if cursor > len(hostValue) {
+				cursor = len(hostValue)
+			}
+			hostValue = hostValue[:cursor] + "_" + hostValue[cursor:]
+		}
+
+		// Render container path field
+		containerValue := pair.ContainerPath
+		if isFocused && s.VolumeFocusedField == 1 {
+			cursor := s.CursorPosition
+			if cursor < 0 {
+				cursor = 0
+			}
+			if cursor > len(containerValue) {
+				cursor = len(containerValue)
+			}
+			containerValue = containerValue[:cursor] + "_" + containerValue[cursor:]
+		}
+
+		// Build the row with focus styling
+		hostFocused := isFocused && s.VolumeFocusedField == 0
+		containerFocused := isFocused && s.VolumeFocusedField == 1
+
+		styledHostLabel := renderFieldLabel(fmt.Sprintf("[%d] Host Path:", i+1), hostFocused)
+		styledContainerLabel := renderFieldLabel("Container Path:", containerFocused)
+
+		// Add +/- buttons
+		addBtn := "+ "
+		removeBtn := "- "
+		if len(s.VolumePairs) == 1 && i == 0 {
+			removeBtn = "  " // Can't remove the last one
+		}
+
+		if zm != nil {
+			hostZoneID := fmt.Sprintf("volume-host:%d", i)
+			containerZoneID := fmt.Sprintf("volume-container:%d", i)
+			addZoneID := fmt.Sprintf("volume-add:%d", i)
+			removeZoneID := fmt.Sprintf("volume-remove:%d", i)
+
+			section.WriteString(zm.Mark(hostZoneID, styledHostLabel+" "))
+			section.WriteString(fmt.Sprintf("%-25s ", hostValue))
+			section.WriteString(zm.Mark(containerZoneID, styledContainerLabel+" "))
+			section.WriteString(fmt.Sprintf("%-25s ", containerValue))
+			section.WriteString(zm.Mark(addZoneID, addBtn))
+			if len(s.VolumePairs) > 1 || i > 0 {
+				section.WriteString(zm.Mark(removeZoneID, removeBtn))
+			}
+			section.WriteString("\n")
+		} else {
+			line := fmt.Sprintf("%s %-25s %s %-25s",
+				styledHostLabel, hostValue, styledContainerLabel, containerValue)
+			section.WriteString(line + " " + addBtn + removeBtn + "\n")
 		}
 	}
 

@@ -3,11 +3,17 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 
 	"github.com/BlueBeard63/archon/internal/models"
 	"github.com/pelletier/go-toml/v2"
 )
+
+// datetimeStringRe matches TOML datetime values that were incorrectly
+// stored as quoted strings (e.g. last_health_check = '2026-01-01T00:00:00Z')
+// and converts them to native TOML datetimes (unquoted).
+var datetimeStringRe = regexp.MustCompile(`(last_health_check\s*=\s*)['"](\d{4}-\d{2}-\d{2}T[^'"]+)['"]`)
 
 // FileConfigLoader implements ConfigLoader using file-based TOML storage
 type FileConfigLoader struct{}
@@ -319,6 +325,10 @@ func (f *FileConfigLoader) LoadAllNodes() ([]models.Node, error) {
 			if err != nil {
 				return err
 			}
+
+			// Fix legacy files where *time.Time was marshaled as a quoted string
+			// instead of a native TOML datetime
+			data = datetimeStringRe.ReplaceAll(data, []byte("${1}${2}"))
 
 			var node models.Node
 			if err := toml.Unmarshal(data, &node); err != nil {
