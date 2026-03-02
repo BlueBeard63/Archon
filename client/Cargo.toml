@@ -39,6 +39,9 @@ rand = "0.8"
 # URL parsing
 url = "2"
 
+# Regex (legacy TOML datetime fixup)
+regex = "1"
+
 # Error handling
 thiserror = "2"
 anyhow = "1"
