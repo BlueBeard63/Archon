@@ -1,6 +1,7 @@
+use floem::peniko::Color;
 use floem::prelude::*;
 use floem::style::CursorStyle;
-use floem::views::{h_stack_from_iter};
+use floem::views::h_stack_from_iter;
 
 use crate::ui::styles::*;
 
@@ -35,6 +36,64 @@ pub fn table_row(
                 } else {
                     BG_PRIMARY
                 })
+                .cursor(CursorStyle::Pointer)
+                .hover(|s| s.background(BG_HOVER))
+        })
+        .on_click_stop(move |_| on_click())
+}
+
+/// A table row with inline action buttons.
+pub fn table_row_with_actions(
+    columns: Vec<(String, f64)>,
+    actions: Vec<(String, Color, Box<dyn Fn() + 'static>)>,
+    on_click: impl Fn() + 'static,
+) -> impl IntoView {
+    let mut cells: Vec<_> = columns
+        .into_iter()
+        .map(|(text, width)| {
+            text.style(move |s| {
+                s.width(width)
+                    .padding_horiz(SPACING_SM)
+                    .font_size(FONT_SIZE_MD)
+                    .color(TEXT_PRIMARY)
+                    .text_ellipsis()
+            })
+            .into_any()
+        })
+        .collect();
+
+    // Actions column
+    let action_buttons: Vec<_> = actions
+        .into_iter()
+        .map(|(label, color, handler)| {
+            label
+                .style(move |s| {
+                    s.padding_horiz(SPACING_SM)
+                        .padding_vert(2.0)
+                        .font_size(FONT_SIZE_SM)
+                        .color(color)
+                        .cursor(CursorStyle::Pointer)
+                        .hover(|s| s.background(BG_HOVER).border_radius(BORDER_RADIUS_SM))
+                })
+                .on_click_stop(move |_| handler())
+                .into_any()
+        })
+        .collect();
+
+    cells.push(
+        h_stack_from_iter(action_buttons)
+            .style(|s| s.items_center().gap(SPACING_XS))
+            .into_any(),
+    );
+
+    h_stack_from_iter(cells)
+        .style(move |s| {
+            s.width_full()
+                .padding_vert(SPACING_SM)
+                .border_bottom(1.0)
+                .border_color(BORDER_MUTED)
+                .background(BG_PRIMARY)
+                .items_center()
                 .cursor(CursorStyle::Pointer)
                 .hover(|s| s.background(BG_HOVER))
         })

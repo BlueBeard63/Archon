@@ -66,9 +66,9 @@ fn app_view(state: &'static AppState) -> impl IntoView {
                     Screen::Help => help_screen().into_any(),
                 },
             )
-            .style(|s| s.flex_grow(1.0).height_full()),
+            .style(|s| s.flex_grow(1.0).height_full().min_height(0.0)),
         ))
-        .style(|s| s.width_full().flex_grow(1.0)),
+        .style(|s| s.width_full().flex_grow(1.0).min_height(0.0)),
         // Status bar
         status_bar(state),
     ))
