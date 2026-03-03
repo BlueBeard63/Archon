@@ -464,8 +464,9 @@ impl FileConfigLoader {
             } else {
                 serde_yaml::from_str::<Site>(&data).map_err(|e| e.to_string())
             };
-            if let Ok(site) = result {
-                sites.push(site);
+            match result {
+                Ok(site) => sites.push(site),
+                Err(e) => eprintln!("Warning: failed to load site from {}: {}", path.display(), e),
             }
         })?;
 
@@ -503,8 +504,9 @@ impl FileConfigLoader {
             } else {
                 serde_yaml::from_str::<Node>(&data).map_err(|e| e.to_string())
             };
-            if let Ok(node) = result {
-                nodes.push(node);
+            match result {
+                Ok(node) => nodes.push(node),
+                Err(e) => eprintln!("Warning: failed to load node from {}: {}", path.display(), e),
             }
         })?;
 

@@ -25,11 +25,30 @@ impl std::fmt::Display for SiteStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SiteType {
     Container,
     Compose,
+}
+
+impl Default for SiteType {
+    fn default() -> Self {
+        Self::Container
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for SiteType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer).unwrap_or_default();
+        match s.to_lowercase().as_str() {
+            "compose" => Ok(Self::Compose),
+            _ => Ok(Self::Container),
+        }
+    }
 }
 
 impl std::fmt::Display for SiteType {
