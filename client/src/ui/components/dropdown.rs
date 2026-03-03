@@ -42,7 +42,7 @@ pub fn dropdown(
                             s.width_full()
                                 .height(INPUT_HEIGHT)
                                 .padding_horiz(INPUT_PADDING)
-                                .padding_vert(SPACING_SM)
+                                .items_center()
                                 .background(BG_ELEVATED)
                                 .color(TEXT_PRIMARY)
                                 .border(1.0)
@@ -50,7 +50,7 @@ pub fn dropdown(
                                 .border_radius(BORDER_RADIUS)
                                 .font_size(FONT_SIZE_MD)
                                 .cursor(CursorStyle::Pointer)
-                                .hover(|s| s.border_color(ACCENT_BLUE))
+                                .hover(|s| s.background(BG_HOVER).border_color(ACCENT_BLUE))
                         })
                         .on_click_stop(move |_| {
                             open.set(!open.get_untracked());
@@ -81,6 +81,7 @@ pub fn dropdown(
                                             .padding_horiz(INPUT_PADDING)
                                             .padding_vert(SPACING_SM)
                                             .min_height(34.0)
+                                            .items_center()
                                             .background(if is_selected {
                                                 BG_HOVER
                                             } else {

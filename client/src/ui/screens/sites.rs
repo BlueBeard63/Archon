@@ -333,8 +333,10 @@ fn site_edit_view(state: &'static AppState) -> impl IntoView {
                             ),
                             // Node dropdown
                             dyn_container(
-                                move || (nodes.get(), state.form.site_node_id.get()),
-                                move |(node_list, current_node_id): (Vec<_>, String)| {
+                                move || nodes.get(),
+                                move |node_list| {
+                                    let current_node_id =
+                                        state.form.site_node_id.get_untracked();
                                     let current_name = node_list
                                         .iter()
                                         .find(|n| n.id.to_string() == current_node_id)
