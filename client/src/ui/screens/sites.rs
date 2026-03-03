@@ -5,6 +5,7 @@ use floem::reactive::{RwSignal, SignalGet, SignalUpdate};
 use floem::views::v_stack_from_iter;
 
 use crate::logic::{commands, AppState, Screen};
+use crate::models::SiteStatus;
 use crate::ui::components::button::{primary_button, secondary_button};
 use crate::ui::components::confirm_dialog::delete_confirm_dialog;
 use crate::ui::components::data_table::{empty_state, table_header, table_row_with_actions};
@@ -113,20 +114,31 @@ fn sites_list_view(state: &'static AppState) -> impl IntoView {
                                             state.navigation.navigate_to(Screen::SiteEdit);
                                         }),
                                     ),
-                                    (
-                                        "Deploy".to_string(),
-                                        ACCENT_GREEN,
-                                        Box::new(move || {
-                                            commands::deploy_site(state, site_id);
-                                        }),
-                                    ),
-                                    (
-                                        "Stop".to_string(),
-                                        ACCENT_YELLOW,
-                                        Box::new(move || {
-                                            commands::stop_site(state, site_id);
-                                        }),
-                                    ),
+                                    {
+                                        let is_running = matches!(
+                                            site.status,
+                                            SiteStatus::Running | SiteStatus::Deploying
+                                        );
+                                        if is_running {
+                                            (
+                                                "Stop".to_string(),
+                                                ACCENT_YELLOW,
+                                                Box::new(move || {
+                                                    commands::stop_site(state, site_id);
+                                                })
+                                                    as Box<dyn Fn() + 'static>,
+                                            )
+                                        } else {
+                                            (
+                                                "Deploy".to_string(),
+                                                ACCENT_GREEN,
+                                                Box::new(move || {
+                                                    commands::deploy_site(state, site_id);
+                                                })
+                                                    as Box<dyn Fn() + 'static>,
+                                            )
+                                        }
+                                    },
                                     (
                                         "Delete".to_string(),
                                         ACCENT_RED,

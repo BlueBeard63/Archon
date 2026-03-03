@@ -4,7 +4,7 @@ use floem::views::v_stack_from_iter;
 
 use crate::logic::{commands, AppState, Screen};
 use crate::ui::components::button::{primary_button, secondary_button};
-use crate::ui::components::data_table::{empty_state, table_header, table_row_with_actions};
+use crate::ui::components::data_table::{empty_state, table_header, table_row, table_row_with_actions};
 use crate::ui::components::dropdown::dropdown;
 use crate::ui::components::form_field::{form_section, text_field};
 use crate::ui::components::form_layout::form_screen;
@@ -264,6 +264,11 @@ fn domain_dns_records_view(state: &'static AppState) -> impl IntoView {
     let domains = state.domains;
     let selected_id = state.selected_domain_id;
 
+    // Auto-fetch DNS records when this view is first shown
+    if let Some(domain_id) = state.selected_domain_id.get_untracked() {
+        commands::fetch_dns_records(state, domain_id);
+    }
+
     v_stack((
         // Header
         h_stack((
@@ -275,6 +280,12 @@ fn domain_dns_records_view(state: &'static AppState) -> impl IntoView {
                     .color(TEXT_PRIMARY)
                     .font_bold()
                     .margin_left(SPACING_MD)
+            }),
+            empty().style(|s| s.flex_grow(1.0)),
+            primary_button("Fetch Records", move || {
+                if let Some(domain_id) = state.selected_domain_id.get_untracked() {
+                    commands::fetch_dns_records(state, domain_id);
+                }
             }),
         ))
         .style(|s| s.width_full().items_center().margin_bottom(SPACING_LG)),
@@ -303,65 +314,21 @@ fn domain_dns_records_view(state: &'static AppState) -> impl IntoView {
                                 .dns_records
                                 .iter()
                                 .map(|record| {
-                                    h_stack((
-                                        record
-                                            .record_type
-                                            .to_string()
-                                            .style(|s| {
-                                                s.min_width(80.0)
-                                                    .flex_basis(0.0)
-                                                    .flex_grow(1.0)
-                                                    .padding_horiz(SPACING_SM)
-                                                    .font_size(FONT_SIZE_MD)
-                                                    .color(TEXT_PRIMARY)
-                                                    .justify_center()
-                                            }),
-                                        record.name.clone().style(|s| {
-                                            s.min_width(200.0)
-                                                .flex_basis(0.0)
-                                                .flex_grow(2.0)
-                                                .padding_horiz(SPACING_SM)
-                                                .font_size(FONT_SIZE_MD)
-                                                .color(TEXT_PRIMARY)
-                                                .justify_center()
-                                                .text_ellipsis()
-                                        }),
-                                        record.value.clone().style(|s| {
-                                            s.min_width(200.0)
-                                                .flex_basis(0.0)
-                                                .flex_grow(2.0)
-                                                .padding_horiz(SPACING_SM)
-                                                .font_size(FONT_SIZE_MD)
-                                                .color(TEXT_PRIMARY)
-                                                .justify_center()
-                                                .text_ellipsis()
-                                        }),
-                                        record.ttl.to_string().style(|s| {
-                                            s.min_width(80.0)
-                                                .flex_basis(0.0)
-                                                .flex_grow(1.0)
-                                                .padding_horiz(SPACING_SM)
-                                                .font_size(FONT_SIZE_MD)
-                                                .color(TEXT_PRIMARY)
-                                                .justify_center()
-                                        }),
-                                        (if record.proxied { "Yes" } else { "No" })
-                                            .style(|s| {
-                                                s.min_width(80.0)
-                                                    .flex_basis(0.0)
-                                                    .flex_grow(1.0)
-                                                    .padding_horiz(SPACING_SM)
-                                                    .font_size(FONT_SIZE_MD)
-                                                    .color(TEXT_PRIMARY)
-                                                    .justify_center()
-                                            }),
-                                    ))
-                                    .style(|s| {
-                                        s.width_full()
-                                            .padding_vert(SPACING_SM)
-                                            .border_bottom(1.0)
-                                            .border_color(BORDER_MUTED)
-                                    })
+                                    table_row(
+                                        vec![
+                                            (record.record_type.to_string(), 80.0),
+                                            (record.name.clone(), 200.0),
+                                            (record.value.clone(), 200.0),
+                                            (record.ttl.to_string(), 80.0),
+                                            (
+                                                if record.proxied { "Yes" } else { "No" }
+                                                    .to_string(),
+                                                80.0,
+                                            ),
+                                        ],
+                                        false,
+                                        || {},
+                                    )
                                     .into_any()
                                 })
                                 .collect();

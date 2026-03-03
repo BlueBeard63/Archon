@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use floem::reactive::{SignalGet, SignalUpdate};
+use floem::ext_event::create_ext_action;
+use floem::reactive::{Scope, SignalGet, SignalUpdate};
 use uuid::Uuid;
 
 use crate::api::{HttpNodeClient, NodeClient};
@@ -62,20 +63,10 @@ pub fn deploy_site(state: &AppState, site_id: Uuid) {
     let settings = state.settings.get_untracked();
     let sites_signal = state.sites;
     let notifications = state.notifications.clone_signals();
+    let site_name_for_ui = site.name.clone();
 
-    // Spawn async deployment
-    tokio::spawn(async move {
-        let client = HttpNodeClient::new();
-        let result = client
-            .deploy_site_with_encryption(
-                &node.api_endpoint,
-                &node.api_key,
-                &site,
-                &domain_name,
-                Some(&settings),
-            )
-            .await;
-
+    // Create a callback that runs on the UI thread when the async task completes
+    let send = create_ext_action(Scope::new(), move |result: Result<(), String>| {
         match result {
             Ok(()) => {
                 sites_signal.update(|sites| {
@@ -85,7 +76,7 @@ pub fn deploy_site(state: &AppState, site_id: Uuid) {
                 });
                 push_notification(&notifications, Notification::success(format!(
                     "{} deployed successfully",
-                    site.name
+                    site_name_for_ui
                 )));
                 complete_operation(&notifications, op_id);
             }
@@ -103,6 +94,22 @@ pub fn deploy_site(state: &AppState, site_id: Uuid) {
             }
         }
     });
+
+    // Spawn async deployment
+    tokio::spawn(async move {
+        let client = HttpNodeClient::new();
+        let result = client
+            .deploy_site_with_encryption(
+                &node.api_endpoint,
+                &node.api_key,
+                &site,
+                &domain_name,
+                Some(&settings),
+            )
+            .await;
+
+        send(result.map_err(|e| e.to_string()));
+    });
 }
 
 /// Stop a running site.
@@ -119,6 +126,29 @@ pub fn stop_site(state: &AppState, site_id: Uuid) {
     let sites_signal = state.sites;
     let notifications = state.notifications.clone_signals();
     let site_name = site.name.clone();
+    let site_name_for_ui = site_name.clone();
+
+    let send = create_ext_action(Scope::new(), move |result: Result<(), String>| {
+        match result {
+            Ok(()) => {
+                sites_signal.update(|sites| {
+                    if let Some(s) = sites.iter_mut().find(|s| s.id == site_id) {
+                        s.status = SiteStatus::Stopped;
+                    }
+                });
+                push_notification(
+                    &notifications,
+                    Notification::success(format!("{} stopped", site_name_for_ui)),
+                );
+            }
+            Err(e) => {
+                push_notification(
+                    &notifications,
+                    Notification::error(format!("Stop failed: {}", e)),
+                );
+            }
+        }
+    });
 
     tokio::spawn(async move {
         let client = HttpNodeClient::new();
@@ -132,25 +162,7 @@ pub fn stop_site(state: &AppState, site_id: Uuid) {
             )
             .await;
 
-        match result {
-            Ok(()) => {
-                sites_signal.update(|sites| {
-                    if let Some(s) = sites.iter_mut().find(|s| s.id == site_id) {
-                        s.status = SiteStatus::Stopped;
-                    }
-                });
-                push_notification(
-                    &notifications,
-                    Notification::success(format!("{} stopped", site_name)),
-                );
-            }
-            Err(e) => {
-                push_notification(
-                    &notifications,
-                    Notification::error(format!("Stop failed: {}", e)),
-                );
-            }
-        }
+        send(result.map_err(|e| e.to_string()));
     });
 }
 
@@ -169,6 +181,29 @@ pub fn restart_site(state: &AppState, site_id: Uuid, pull_latest: bool) {
     let sites_signal = state.sites;
     let notifications = state.notifications.clone_signals();
     let site_name = site.name.clone();
+    let site_name_for_ui = site_name.clone();
+
+    let send = create_ext_action(Scope::new(), move |result: Result<(), String>| {
+        match result {
+            Ok(()) => {
+                sites_signal.update(|sites| {
+                    if let Some(s) = sites.iter_mut().find(|s| s.id == site_id) {
+                        s.status = SiteStatus::Running;
+                    }
+                });
+                push_notification(
+                    &notifications,
+                    Notification::success(format!("{} restarted", site_name_for_ui)),
+                );
+            }
+            Err(e) => {
+                push_notification(
+                    &notifications,
+                    Notification::error(format!("Restart failed: {}", e)),
+                );
+            }
+        }
+    });
 
     tokio::spawn(async move {
         let client = HttpNodeClient::new();
@@ -183,25 +218,7 @@ pub fn restart_site(state: &AppState, site_id: Uuid, pull_latest: bool) {
             )
             .await;
 
-        match result {
-            Ok(()) => {
-                sites_signal.update(|sites| {
-                    if let Some(s) = sites.iter_mut().find(|s| s.id == site_id) {
-                        s.status = SiteStatus::Running;
-                    }
-                });
-                push_notification(
-                    &notifications,
-                    Notification::success(format!("{} restarted", site_name)),
-                );
-            }
-            Err(e) => {
-                push_notification(
-                    &notifications,
-                    Notification::error(format!("Restart failed: {}", e)),
-                );
-            }
-        }
+        send(result.map_err(|e| e.to_string()));
     });
 }
 
@@ -221,6 +238,25 @@ pub fn delete_site(state: &AppState, site_id: Uuid) {
     let notifications = state.notifications.clone_signals();
     let site_name = site.name.clone();
     let domain_name_clone = domain_name.clone();
+    let site_name_for_ui = site_name.clone();
+
+    let send = create_ext_action(Scope::new(), move |result: Result<(), String>| {
+        match result {
+            Ok(()) => {
+                sites_signal.update(|sites| sites.retain(|s| s.id != site_id));
+                push_notification(
+                    &notifications,
+                    Notification::success(format!("{} deleted", site_name_for_ui)),
+                );
+            }
+            Err(e) => {
+                push_notification(
+                    &notifications,
+                    Notification::error(format!("Delete failed: {}", e)),
+                );
+            }
+        }
+    });
 
     tokio::spawn(async move {
         let client = HttpNodeClient::new();
@@ -235,27 +271,16 @@ pub fn delete_site(state: &AppState, site_id: Uuid) {
             )
             .await;
 
-        match result {
+        match &result {
             Ok(()) => {
                 // Archive locally
                 let loader = FileConfigLoader::new();
                 let _ = loader.archive_site(&site_name, &domain_name_clone, &site);
-
-                // Remove from state
-                sites_signal.update(|sites| sites.retain(|s| s.id != site_id));
-
-                push_notification(
-                    &notifications,
-                    Notification::success(format!("{} deleted", site_name)),
-                );
             }
-            Err(e) => {
-                push_notification(
-                    &notifications,
-                    Notification::error(format!("Delete failed: {}", e)),
-                );
-            }
+            Err(_) => {}
         }
+
+        send(result.map_err(|e| e.to_string()));
     });
 }
 
@@ -321,14 +346,8 @@ pub fn health_check_node(state: &AppState, node_id: Uuid) {
     };
 
     let nodes_signal = state.nodes;
-    let notifications = state.notifications.clone_signals();
 
-    tokio::spawn(async move {
-        let client = HttpNodeClient::new();
-        let result = client
-            .health_check(&node.api_endpoint, &node.api_key)
-            .await;
-
+    let send = create_ext_action(Scope::new(), move |result: Result<crate::api::HealthResponse, String>| {
         nodes_signal.update(|nodes| {
             if let Some(n) = nodes.iter_mut().find(|n| n.id == node_id) {
                 match result {
@@ -345,6 +364,15 @@ pub fn health_check_node(state: &AppState, node_id: Uuid) {
                 }
             }
         });
+    });
+
+    tokio::spawn(async move {
+        let client = HttpNodeClient::new();
+        let result = client
+            .health_check(&node.api_endpoint, &node.api_key)
+            .await;
+
+        send(result.map_err(|e| e.to_string()));
     });
 }
 
@@ -493,6 +521,123 @@ pub fn delete_domain(state: &AppState, domain_id: Uuid) {
             domain.name
         )));
     }
+}
+
+/// Fetch DNS records from the provider for a domain and update state.
+pub fn fetch_dns_records(state: &AppState, domain_id: Uuid) {
+    use crate::models::DnsProviderType;
+
+    let domain = match state.find_domain(domain_id) {
+        Some(d) => d,
+        None => {
+            state
+                .notifications
+                .push(Notification::error("Domain not found"));
+            return;
+        }
+    };
+
+    tracing::info!(
+        "fetch_dns_records: domain={}, provider={:?}",
+        domain.name,
+        domain.dns_provider.provider_type
+    );
+
+    if domain.dns_provider.provider_type == DnsProviderType::Manual {
+        state
+            .notifications
+            .push(Notification::info("Manual DNS — no provider to fetch from"));
+        return;
+    }
+
+    // Build a provider config with the API token from settings if the domain's own token is missing
+    let mut provider_config = domain.dns_provider.clone();
+    let settings = state.settings.get_untracked();
+
+    if provider_config.provider_type == DnsProviderType::Cloudflare {
+        let has_token = provider_config
+            .api_token
+            .as_deref()
+            .is_some_and(|t| !t.is_empty());
+        if !has_token {
+            tracing::info!("fetch_dns_records: domain token empty, using settings token");
+            if !settings.cloudflare_api_token.is_empty() {
+                provider_config.api_token = Some(settings.cloudflare_api_token.clone());
+            }
+        }
+    }
+
+    let provider = match crate::dns::cloudflare::create_provider(&provider_config) {
+        Ok(Some(p)) => p,
+        Ok(None) => {
+            state
+                .notifications
+                .push(Notification::info("No DNS provider configured"));
+            return;
+        }
+        Err(e) => {
+            tracing::error!("fetch_dns_records: provider creation failed: {}", e);
+            state
+                .notifications
+                .push(Notification::error(format!("DNS provider error: {}", e)));
+            return;
+        }
+    };
+
+    let domain_name = domain.name.clone();
+    let domains_signal = state.domains;
+    let notifications = state.notifications.clone_signals();
+
+    state
+        .notifications
+        .push(Notification::info(format!("Fetching DNS records for {}...", domain_name)));
+
+    let domain_name_for_ui = domain_name.clone();
+
+    let send = create_ext_action(Scope::new(), move |result: Result<Vec<crate::models::DnsRecord>, String>| {
+        match result {
+            Ok(records) => {
+                let count = records.len();
+                domains_signal.update(|domains| {
+                    if let Some(d) = domains.iter_mut().find(|d| d.id == domain_id) {
+                        d.dns_records = records;
+                    }
+                });
+                push_notification(
+                    &notifications,
+                    Notification::success(format!(
+                        "Fetched {} DNS records for {}",
+                        count, domain_name_for_ui
+                    )),
+                );
+            }
+            Err(e) => {
+                push_notification(
+                    &notifications,
+                    Notification::error(format!("Failed to fetch DNS records: {}", e)),
+                );
+            }
+        }
+    });
+
+    tokio::spawn(async move {
+        use crate::dns::cloudflare::DnsProvider;
+
+        tracing::info!("fetch_dns_records: calling list_records for {}", domain_name);
+
+        let result = provider.list_records(&domain_name).await;
+
+        match &result {
+            Ok(records) => {
+                tracing::info!("fetch_dns_records: got {} records for {}", records.len(), domain_name);
+            }
+            Err(e) => {
+                tracing::error!("fetch_dns_records: API call failed: {}", e);
+            }
+        }
+
+        send(result.map_err(|e| e.to_string()));
+    });
 }
 
 // ---------------------------------------------------------------------------
