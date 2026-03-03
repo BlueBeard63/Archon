@@ -129,7 +129,8 @@ fn domains_list_view(state: &'static AppState) -> impl IntoView {
                         .style(|s| s.width_full())
                         .into_any()
                 },
-            ),
+            )
+            .style(|s| s.width_full()),
         )
         .style(|s| s.width_full().flex_grow(1.0).min_height(0.0)),
     ))
@@ -307,37 +308,52 @@ fn domain_dns_records_view(state: &'static AppState) -> impl IntoView {
                                             .record_type
                                             .to_string()
                                             .style(|s| {
-                                                s.width(80.0)
+                                                s.min_width(80.0)
+                                                    .flex_basis(0.0)
+                                                    .flex_grow(1.0)
                                                     .padding_horiz(SPACING_SM)
                                                     .font_size(FONT_SIZE_MD)
                                                     .color(TEXT_PRIMARY)
+                                                    .justify_center()
                                             }),
                                         record.name.clone().style(|s| {
-                                            s.width(200.0)
+                                            s.min_width(200.0)
+                                                .flex_basis(0.0)
+                                                .flex_grow(2.0)
                                                 .padding_horiz(SPACING_SM)
                                                 .font_size(FONT_SIZE_MD)
                                                 .color(TEXT_PRIMARY)
+                                                .justify_center()
                                                 .text_ellipsis()
                                         }),
                                         record.value.clone().style(|s| {
-                                            s.width(200.0)
+                                            s.min_width(200.0)
+                                                .flex_basis(0.0)
+                                                .flex_grow(2.0)
                                                 .padding_horiz(SPACING_SM)
                                                 .font_size(FONT_SIZE_MD)
                                                 .color(TEXT_PRIMARY)
+                                                .justify_center()
                                                 .text_ellipsis()
                                         }),
                                         record.ttl.to_string().style(|s| {
-                                            s.width(80.0)
+                                            s.min_width(80.0)
+                                                .flex_basis(0.0)
+                                                .flex_grow(1.0)
                                                 .padding_horiz(SPACING_SM)
                                                 .font_size(FONT_SIZE_MD)
                                                 .color(TEXT_PRIMARY)
+                                                .justify_center()
                                         }),
                                         (if record.proxied { "Yes" } else { "No" })
                                             .style(|s| {
-                                                s.width(80.0)
+                                                s.min_width(80.0)
+                                                    .flex_basis(0.0)
+                                                    .flex_grow(1.0)
                                                     .padding_horiz(SPACING_SM)
                                                     .font_size(FONT_SIZE_MD)
                                                     .color(TEXT_PRIMARY)
+                                                    .justify_center()
                                             }),
                                     ))
                                     .style(|s| {
@@ -356,7 +372,8 @@ fn domain_dns_records_view(state: &'static AppState) -> impl IntoView {
                         }
                     }
                 },
-            ),
+            )
+            .style(|s| s.width_full()),
         )
         .style(|s| s.width_full().flex_grow(1.0).min_height(0.0)),
     ))

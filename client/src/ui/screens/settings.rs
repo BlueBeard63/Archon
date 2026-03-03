@@ -160,7 +160,8 @@ fn settings_main_view(state: &'static AppState) -> impl IntoView {
                                     .style(|s| s.width_full())
                                     .into_any()
                             },
-                        ),
+                        )
+                        .style(|s| s.width_full()),
                     ))
                     .style(|s| s.width_full()),
                 )

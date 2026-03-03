@@ -135,7 +135,8 @@ fn nodes_list_view(state: &'static AppState) -> impl IntoView {
                         .style(|s| s.width_full())
                         .into_any()
                 },
-            ),
+            )
+            .style(|s| s.width_full()),
         )
         .style(|s| s.width_full().flex_grow(1.0).min_height(0.0)),
     ))

@@ -15,10 +15,13 @@ pub fn table_row(
         .into_iter()
         .map(|(text, width)| {
             text.style(move |s| {
-                s.width(width)
+                s.min_width(width)
+                    .flex_basis(0.0)
+                    .flex_grow(1.0)
                     .padding_horiz(SPACING_SM)
                     .font_size(FONT_SIZE_MD)
                     .color(TEXT_PRIMARY)
+                    .justify_center()
                     .text_ellipsis()
             })
             .into_any()
@@ -52,17 +55,20 @@ pub fn table_row_with_actions(
         .into_iter()
         .map(|(text, width)| {
             text.style(move |s| {
-                s.width(width)
+                s.min_width(width)
+                    .flex_basis(0.0)
+                    .flex_grow(1.0)
                     .padding_horiz(SPACING_SM)
                     .font_size(FONT_SIZE_MD)
                     .color(TEXT_PRIMARY)
+                    .justify_center()
                     .text_ellipsis()
             })
             .into_any()
         })
         .collect();
 
-    // Actions column
+    // Actions column — fixed width, no grow
     let action_buttons: Vec<_> = actions
         .into_iter()
         .map(|(label, color, handler)| {
@@ -82,7 +88,13 @@ pub fn table_row_with_actions(
 
     cells.push(
         h_stack_from_iter(action_buttons)
-            .style(|s| s.items_center().gap(SPACING_XS))
+            .style(|s| {
+                s.items_center()
+                    .justify_center()
+                    .gap(SPACING_XS)
+                    .flex_basis(0.0)
+                    .flex_grow(1.0)
+            })
             .into_any(),
     );
 
@@ -107,11 +119,14 @@ pub fn table_header(columns: Vec<(&str, f64)>) -> impl IntoView {
         .map(|(text, width)| {
             let text = text.to_string();
             text.style(move |s| {
-                s.width(width)
+                s.min_width(width)
+                    .flex_basis(0.0)
+                    .flex_grow(1.0)
                     .padding_horiz(SPACING_SM)
                     .font_size(FONT_SIZE_SM)
                     .color(TEXT_MUTED)
                     .font_bold()
+                    .justify_center()
             })
             .into_any()
         })
