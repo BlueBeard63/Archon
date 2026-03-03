@@ -284,18 +284,17 @@ fn node_config_view(state: &'static AppState) -> impl IntoView {
                             s.color(TEXT_MUTED).font_size(FONT_SIZE_MD)
                         }).into_any(),
                         Some(n) => {
-                            // Generate a TOML-like config display
                             let config = format!(
-                                "[node]\n\
-                                 name = \"{}\"\n\
-                                 api_endpoint = \"{}\"\n\
-                                 api_key = \"{}\"\n\
-                                 ip_address = \"{}\"\n\
-                                 proxy_type = \"{}\"\n\
+                                "node:\n\
+                                 \x20 name: \"{}\"\n\
+                                 \x20 api_endpoint: \"{}\"\n\
+                                 \x20 api_key: \"{}\"\n\
+                                 \x20 ip_address: \"{}\"\n\
+                                 \x20 proxy_type: \"{}\"\n\
                                  \n\
-                                 [status]\n\
-                                 status = \"{}\"\n\
-                                 last_health_check = \"{}\"",
+                                 status:\n\
+                                 \x20 status: \"{}\"\n\
+                                 \x20 last_health_check: \"{}\"",
                                 n.name,
                                 n.api_endpoint,
                                 n.api_key,

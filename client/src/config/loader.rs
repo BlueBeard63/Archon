@@ -19,8 +19,8 @@ pub enum ConfigError {
     Io(#[from] std::io::Error),
     #[error("TOML deserialize error: {0}")]
     TomlDeserialize(#[from] toml::de::Error),
-    #[error("TOML serialize error: {0}")]
-    TomlSerialize(#[from] toml::ser::Error),
+    #[error("YAML error: {0}")]
+    Yaml(#[from] serde_yaml::Error),
     #[error("{0}")]
     Validation(String),
     #[error("migration v{version} ({description}) failed: {source}")]
@@ -289,7 +289,7 @@ fn backup_config(config_path: &Path) -> Result<(), ConfigError> {
     fs::create_dir_all(&backup_dir)?;
 
     let timestamp = Utc::now().format("%Y-%m-%d_%H-%M-%S");
-    let backup_name = format!("config_backup_{}.toml", timestamp);
+    let backup_name = format!("config_backup_{}.yml", timestamp);
     let backup_path = backup_dir.join(backup_name);
 
     fs::write(backup_path, data)?;
@@ -308,7 +308,8 @@ pub fn list_backups(config_path: &Path) -> Result<Vec<BackupInfo>, ConfigError> 
     for entry in fs::read_dir(&backup_dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.is_dir() || path.extension().and_then(|e| e.to_str()) != Some("toml") {
+        let ext = path.extension().and_then(|e| e.to_str());
+        if path.is_dir() || !matches!(ext, Some("yml" | "toml")) {
             continue;
         }
         let metadata = entry.metadata()?;
@@ -344,13 +345,19 @@ impl FileConfigLoader {
     /// Returns the platform-specific default config path.
     pub fn default_config_path() -> Result<PathBuf, ConfigError> {
         let config_dir = get_archon_config_dir()?;
-        Ok(config_dir.join("config.toml"))
+        Ok(config_dir.join("config.yml"))
     }
 
-    /// Returns the base archon config directory.
+    /// Loads the config from disk, preferring `.yml` and falling back to `.toml`.
     pub fn load(&self, path: &Path) -> Result<Config, ConfigError> {
+        // path points to config.yml by default; derive the .toml fallback
+        let toml_fallback = path.with_extension("toml");
+
         let mut config = if path.exists() {
             let data = fs::read_to_string(path)?;
+            serde_yaml::from_str::<Config>(&data)?
+        } else if toml_fallback.exists() {
+            let data = fs::read_to_string(&toml_fallback)?;
             toml::from_str::<Config>(&data)?
         } else {
             Config::default()
@@ -402,7 +409,7 @@ impl FileConfigLoader {
             settings: config.settings.clone(),
         };
 
-        let data = toml::to_string(&legacy_config)?;
+        let data = serde_yaml::to_string(&legacy_config)?;
         fs::write(path, data)?;
 
         // Save each site to its directory
@@ -431,13 +438,13 @@ impl FileConfigLoader {
             .join("sites")
             .join(domain_name)
             .join(&site.name)
-            .join("config.toml");
+            .join("config.yml");
 
         if let Some(parent) = site_path.parent() {
             fs::create_dir_all(parent)?;
         }
 
-        let data = toml::to_string(site)?;
+        let data = serde_yaml::to_string(site)?;
         fs::write(site_path, data)?;
         Ok(())
     }
@@ -451,8 +458,13 @@ impl FileConfigLoader {
         }
 
         let mut sites = Vec::new();
-        walk_config_files(&sites_dir, &mut |data| {
-            if let Ok(site) = toml::from_str::<Site>(&data) {
+        walk_config_files(&sites_dir, &mut |data, path| {
+            let result = if path.extension().and_then(|e| e.to_str()) == Some("toml") {
+                toml::from_str::<Site>(&data).map_err(|e| e.to_string())
+            } else {
+                serde_yaml::from_str::<Site>(&data).map_err(|e| e.to_string())
+            };
+            if let Ok(site) = result {
                 sites.push(site);
             }
         })?;
@@ -465,13 +477,13 @@ impl FileConfigLoader {
         let node_path = base_dir
             .join("nodes")
             .join(&node.name)
-            .join("config.toml");
+            .join("config.yml");
 
         if let Some(parent) = node_path.parent() {
             fs::create_dir_all(parent)?;
         }
 
-        let data = toml::to_string(node)?;
+        let data = serde_yaml::to_string(node)?;
         fs::write(node_path, data)?;
         Ok(())
     }
@@ -484,15 +496,20 @@ impl FileConfigLoader {
             return Ok(Vec::new());
         }
 
-        // Regex to fix legacy datetime strings in TOML
+        // Regex to fix legacy datetime strings in TOML files
         let datetime_re =
             Regex::new(r#"(last_health_check\s*=\s*)['"](\d{4}-\d{2}-\d{2}T[^'"]+)['"]"#)
                 .unwrap();
 
         let mut nodes = Vec::new();
-        walk_config_files(&nodes_dir, &mut |data| {
-            let fixed = datetime_re.replace_all(&data, "${1}${2}").to_string();
-            if let Ok(node) = toml::from_str::<Node>(&fixed) {
+        walk_config_files(&nodes_dir, &mut |data, path| {
+            let result = if path.extension().and_then(|e| e.to_str()) == Some("toml") {
+                let fixed = datetime_re.replace_all(&data, "${1}${2}").to_string();
+                toml::from_str::<Node>(&fixed).map_err(|e| e.to_string())
+            } else {
+                serde_yaml::from_str::<Node>(&data).map_err(|e| e.to_string())
+            };
+            if let Ok(node) = result {
                 nodes.push(node);
             }
         })?;
@@ -552,8 +569,14 @@ impl FileConfigLoader {
 
         fs::create_dir_all(&archive_path)?;
 
-        let config_data = fs::read(src_path.join("config.toml"))?;
-        fs::write(archive_path.join("config.toml"), config_data)?;
+        // Read from whichever config file exists (.yml preferred)
+        let src_config = if src_path.join("config.yml").exists() {
+            src_path.join("config.yml")
+        } else {
+            src_path.join("config.toml")
+        };
+        let config_data = fs::read(&src_config)?;
+        fs::write(archive_path.join("config.yml"), config_data)?;
 
         fs::remove_dir_all(src_path)?;
 
@@ -596,20 +619,29 @@ impl FileConfigLoader {
                     }
 
                     let archive_path = ts_entry.path();
-                    let config_path = archive_path.join("config.toml");
+                    let yml_path = archive_path.join("config.yml");
+                    let toml_path = archive_path.join("config.toml");
 
-                    if let Ok(data) = fs::read_to_string(&config_path) {
-                        if let Ok(site) = toml::from_str::<Site>(&data) {
-                            deleted_sites.push(DeletedSite {
-                                site,
-                                domain_name: domain_name.clone(),
-                                archive_path: archive_path.to_string_lossy().into_owned(),
-                                deleted_at: ts_entry
-                                    .file_name()
-                                    .to_string_lossy()
-                                    .into_owned(),
-                            });
-                        }
+                    let parsed = if yml_path.exists() {
+                        fs::read_to_string(&yml_path)
+                            .ok()
+                            .and_then(|data| serde_yaml::from_str::<Site>(&data).ok())
+                    } else {
+                        fs::read_to_string(&toml_path)
+                            .ok()
+                            .and_then(|data| toml::from_str::<Site>(&data).ok())
+                    };
+
+                    if let Some(site) = parsed {
+                        deleted_sites.push(DeletedSite {
+                            site,
+                            domain_name: domain_name.clone(),
+                            archive_path: archive_path.to_string_lossy().into_owned(),
+                            deleted_at: ts_entry
+                                .file_name()
+                                .to_string_lossy()
+                                .into_owned(),
+                        });
                     }
                 }
             }
@@ -636,19 +668,24 @@ impl FileConfigLoader {
         domain_name: &str,
     ) -> Result<(), ConfigError> {
         let archive = Path::new(archive_path);
-        let config_path = archive.join("config.toml");
-        if !config_path.exists() {
+        let yml_path = archive.join("config.yml");
+        let toml_path = archive.join("config.toml");
+        let config_path = if yml_path.exists() {
+            yml_path
+        } else if toml_path.exists() {
+            toml_path
+        } else {
             return Err(ConfigError::Io(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                "archived config.toml not found",
+                "archived config not found (tried config.yml and config.toml)",
             )));
-        }
+        };
 
         let dest_path = base_dir.join("sites").join(domain_name).join(site_name);
         fs::create_dir_all(&dest_path)?;
 
         let data = fs::read(&config_path)?;
-        fs::write(dest_path.join("config.toml"), data)?;
+        fs::write(dest_path.join("config.yml"), data)?;
 
         fs::remove_dir_all(archive)?;
         Ok(())
@@ -680,11 +717,11 @@ pub fn get_archon_config_dir() -> Result<PathBuf, ConfigError> {
     }
 }
 
-/// Walks a directory tree looking for `config.toml` files and calls the callback
-/// with the file contents.
+/// Walks a directory tree looking for config files (preferring `config.yml`
+/// over `config.toml`) and calls the callback with the file contents and path.
 fn walk_config_files(
     dir: &Path,
-    callback: &mut dyn FnMut(String),
+    callback: &mut dyn FnMut(String, &Path),
 ) -> Result<(), ConfigError> {
     if !dir.exists() {
         return Ok(());
@@ -695,10 +732,21 @@ fn walk_config_files(
         let path = entry.path();
 
         if path.is_dir() {
-            walk_config_files(&path, callback)?;
-        } else if path.file_name().and_then(|n| n.to_str()) == Some("config.toml") {
-            if let Ok(data) = fs::read_to_string(&path) {
-                callback(data);
+            // At each directory, prefer config.yml over config.toml
+            let yml_path = path.join("config.yml");
+            let toml_path = path.join("config.toml");
+
+            if yml_path.exists() {
+                if let Ok(data) = fs::read_to_string(&yml_path) {
+                    callback(data, &yml_path);
+                }
+            } else if toml_path.exists() {
+                if let Ok(data) = fs::read_to_string(&toml_path) {
+                    callback(data, &toml_path);
+                }
+            } else {
+                // No config file at this level, recurse deeper
+                walk_config_files(&path, callback)?;
             }
         }
     }
