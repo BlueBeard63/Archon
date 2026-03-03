@@ -4,7 +4,7 @@ use floem::views::v_stack_from_iter;
 
 use crate::logic::{commands, AppState, Screen};
 use crate::ui::components::button::{primary_button, secondary_button};
-use crate::ui::components::data_table::{empty_state, table_header, table_row, table_row_with_actions};
+use crate::ui::components::data_table::{empty_state, table_header, table_row_with_actions};
 use crate::ui::components::dropdown::dropdown;
 use crate::ui::components::form_field::{form_section, text_field};
 use crate::ui::components::form_layout::form_screen;
@@ -260,6 +260,43 @@ fn domain_edit_view(state: &'static AppState) -> impl IntoView {
     .style(|s| s.width_full().height_full())
 }
 
+// ---------------------------------------------------------------------------
+// DNS Records view — uses fixed column widths to prevent overflow in scroll
+// ---------------------------------------------------------------------------
+
+// Fixed column widths for the DNS records table.
+// Using absolute widths prevents text content from expanding columns
+// beyond the viewport inside a scroll view.
+const DNS_COL_TYPE: f64 = 70.0;
+const DNS_COL_NAME: f64 = 250.0;
+const DNS_COL_VALUE: f64 = 350.0;
+const DNS_COL_TTL: f64 = 70.0;
+const DNS_COL_PROXIED: f64 = 70.0;
+
+/// A single fixed-width cell for the DNS records table.
+fn dns_cell(text: &str, width: f64) -> impl IntoView {
+    text.to_string().style(move |s| {
+        s.width(width)
+            .padding_horiz(SPACING_SM)
+            .font_size(FONT_SIZE_MD)
+            .color(TEXT_PRIMARY)
+            .items_center()
+            .text_ellipsis()
+    })
+}
+
+/// A fixed-width header cell for the DNS records table.
+fn dns_header_cell(text: &str, width: f64) -> impl IntoView {
+    text.to_string().style(move |s| {
+        s.width(width)
+            .padding_horiz(SPACING_SM)
+            .font_size(FONT_SIZE_SM)
+            .color(TEXT_MUTED)
+            .font_bold()
+            .items_center()
+    })
+}
+
 fn domain_dns_records_view(state: &'static AppState) -> impl IntoView {
     let domains = state.domains;
     let selected_id = state.selected_domain_id;
@@ -289,14 +326,22 @@ fn domain_dns_records_view(state: &'static AppState) -> impl IntoView {
             }),
         ))
         .style(|s| s.width_full().items_center().margin_bottom(SPACING_LG)),
-        // Table
-        table_header(vec![
-            ("Type", 80.0),
-            ("Name", 200.0),
-            ("Value", 200.0),
-            ("TTL", 80.0),
-            ("Proxied", 80.0),
-        ]),
+        // Table header — fixed widths matching data rows
+        h_stack((
+            dns_header_cell("Type", DNS_COL_TYPE),
+            dns_header_cell("Name", DNS_COL_NAME),
+            dns_header_cell("Value", DNS_COL_VALUE),
+            dns_header_cell("TTL", DNS_COL_TTL),
+            dns_header_cell("Proxied", DNS_COL_PROXIED),
+        ))
+        .style(|s| {
+            s.width_full()
+                .padding_vert(SPACING_SM)
+                .border_bottom(1.0)
+                .border_color(BORDER_DEFAULT)
+                .background(BG_SECONDARY)
+        }),
+        // Scrollable records
         scroll(
             dyn_container(
                 move || (domains.get(), selected_id.get()),
@@ -314,21 +359,25 @@ fn domain_dns_records_view(state: &'static AppState) -> impl IntoView {
                                 .dns_records
                                 .iter()
                                 .map(|record| {
-                                    table_row(
-                                        vec![
-                                            (record.record_type.to_string(), 80.0),
-                                            (record.name.clone(), 200.0),
-                                            (record.value.clone(), 200.0),
-                                            (record.ttl.to_string(), 80.0),
-                                            (
-                                                if record.proxied { "Yes" } else { "No" }
-                                                    .to_string(),
-                                                80.0,
-                                            ),
-                                        ],
-                                        false,
-                                        || {},
-                                    )
+                                    h_stack((
+                                        dns_cell(
+                                            &record.record_type.to_string(),
+                                            DNS_COL_TYPE,
+                                        ),
+                                        dns_cell(&record.name, DNS_COL_NAME),
+                                        dns_cell(&record.value, DNS_COL_VALUE),
+                                        dns_cell(&record.ttl.to_string(), DNS_COL_TTL),
+                                        dns_cell(
+                                            if record.proxied { "Yes" } else { "No" },
+                                            DNS_COL_PROXIED,
+                                        ),
+                                    ))
+                                    .style(|s| {
+                                        s.width_full()
+                                            .padding_vert(SPACING_SM)
+                                            .border_bottom(1.0)
+                                            .border_color(BORDER_MUTED)
+                                    })
                                     .into_any()
                                 })
                                 .collect();

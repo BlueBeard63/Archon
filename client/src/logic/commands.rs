@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use floem::ext_event::create_ext_action;
-use floem::reactive::{Scope, SignalGet, SignalUpdate};
+use floem::reactive::{Scope, SignalGet, SignalUpdate, SignalWith};
 use uuid::Uuid;
 
 use crate::api::{HttpNodeClient, NodeClient};
@@ -64,8 +64,8 @@ pub fn deploy_site(state: &AppState, site_id: Uuid) {
     let sites_signal = state.sites;
     let notifications = state.notifications.clone_signals();
     let site_name_for_ui = site.name.clone();
+    let domain_name_for_save = domain_name.clone();
 
-    // Create a callback that runs on the UI thread when the async task completes
     let send = create_ext_action(Scope::new(), move |result: Result<(), String>| {
         match result {
             Ok(()) => {
@@ -74,6 +74,7 @@ pub fn deploy_site(state: &AppState, site_id: Uuid) {
                         s.status = SiteStatus::Running;
                     }
                 });
+                save_site_from_signal(sites_signal, site_id, &domain_name_for_save);
                 push_notification(&notifications, Notification::success(format!(
                     "{} deployed successfully",
                     site_name_for_ui
@@ -86,6 +87,7 @@ pub fn deploy_site(state: &AppState, site_id: Uuid) {
                         s.status = SiteStatus::Failed;
                     }
                 });
+                save_site_from_signal(sites_signal, site_id, &domain_name_for_save);
                 push_notification(&notifications, Notification::error(format!(
                     "Deploy failed: {}",
                     e
@@ -95,7 +97,6 @@ pub fn deploy_site(state: &AppState, site_id: Uuid) {
         }
     });
 
-    // Spawn async deployment
     tokio::spawn(async move {
         let client = HttpNodeClient::new();
         let result = client
@@ -123,10 +124,10 @@ pub fn stop_site(state: &AppState, site_id: Uuid) {
         None => return,
     };
 
+    let domain_name = state.domain_name_for_site(&site);
     let sites_signal = state.sites;
     let notifications = state.notifications.clone_signals();
-    let site_name = site.name.clone();
-    let site_name_for_ui = site_name.clone();
+    let site_name_for_ui = site.name.clone();
 
     let send = create_ext_action(Scope::new(), move |result: Result<(), String>| {
         match result {
@@ -136,6 +137,7 @@ pub fn stop_site(state: &AppState, site_id: Uuid) {
                         s.status = SiteStatus::Stopped;
                     }
                 });
+                save_site_from_signal(sites_signal, site_id, &domain_name);
                 push_notification(
                     &notifications,
                     Notification::success(format!("{} stopped", site_name_for_ui)),
@@ -178,10 +180,10 @@ pub fn restart_site(state: &AppState, site_id: Uuid, pull_latest: bool) {
     };
 
     let (username, token) = resolve_credentials(state, &site);
+    let domain_name = state.domain_name_for_site(&site);
     let sites_signal = state.sites;
     let notifications = state.notifications.clone_signals();
-    let site_name = site.name.clone();
-    let site_name_for_ui = site_name.clone();
+    let site_name_for_ui = site.name.clone();
 
     let send = create_ext_action(Scope::new(), move |result: Result<(), String>| {
         match result {
@@ -191,6 +193,7 @@ pub fn restart_site(state: &AppState, site_id: Uuid, pull_latest: bool) {
                         s.status = SiteStatus::Running;
                     }
                 });
+                save_site_from_signal(sites_signal, site_id, &domain_name);
                 push_notification(
                     &notifications,
                     Notification::success(format!("{} restarted", site_name_for_ui)),
@@ -364,6 +367,7 @@ pub fn health_check_node(state: &AppState, node_id: Uuid) {
                 }
             }
         });
+        save_node_from_signal(nodes_signal, node_id);
     });
 
     tokio::spawn(async move {
@@ -1335,6 +1339,35 @@ impl super::notifications::NotificationState {
         NotificationSignals {
             notifications: self.notifications,
             pending_operations: self.pending_operations,
+        }
+    }
+}
+
+/// Save a single site to disk after an in-memory status update.
+fn save_site_from_signal(
+    sites_signal: floem::reactive::RwSignal<Vec<Site>>,
+    site_id: Uuid,
+    domain_name: &str,
+) {
+    let site = sites_signal.with_untracked(|sites| sites.iter().find(|s| s.id == site_id).cloned());
+    if let Some(site) = site {
+        let loader = FileConfigLoader::new();
+        if let Err(e) = loader.save_site(&site, domain_name) {
+            eprintln!("Failed to save site config: {}", e);
+        }
+    }
+}
+
+/// Save a single node to disk after an in-memory status update.
+fn save_node_from_signal(
+    nodes_signal: floem::reactive::RwSignal<Vec<Node>>,
+    node_id: Uuid,
+) {
+    let node = nodes_signal.with_untracked(|nodes| nodes.iter().find(|n| n.id == node_id).cloned());
+    if let Some(node) = node {
+        let loader = FileConfigLoader::new();
+        if let Err(e) = loader.save_node(&node) {
+            eprintln!("Failed to save node config: {}", e);
         }
     }
 }
