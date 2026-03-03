@@ -358,7 +358,7 @@ impl FileConfigLoader {
             serde_yaml::from_str::<Config>(&data)?
         } else if toml_fallback.exists() {
             let data = fs::read_to_string(&toml_fallback)?;
-            toml::from_str::<Config>(&data)?
+            toml::from_str::<Config>(&fix_toml_datetimes(&data))?
         } else {
             Config::default()
         };
@@ -460,7 +460,7 @@ impl FileConfigLoader {
         let mut sites = Vec::new();
         walk_config_files(&sites_dir, &mut |data, path| {
             let result = if path.extension().and_then(|e| e.to_str()) == Some("toml") {
-                toml::from_str::<Site>(&data).map_err(|e| e.to_string())
+                toml::from_str::<Site>(&fix_toml_datetimes(&data)).map_err(|e| e.to_string())
             } else {
                 serde_yaml::from_str::<Site>(&data).map_err(|e| e.to_string())
             };
@@ -496,16 +496,10 @@ impl FileConfigLoader {
             return Ok(Vec::new());
         }
 
-        // Regex to fix legacy datetime strings in TOML files
-        let datetime_re =
-            Regex::new(r#"(last_health_check\s*=\s*)['"](\d{4}-\d{2}-\d{2}T[^'"]+)['"]"#)
-                .unwrap();
-
         let mut nodes = Vec::new();
         walk_config_files(&nodes_dir, &mut |data, path| {
             let result = if path.extension().and_then(|e| e.to_str()) == Some("toml") {
-                let fixed = datetime_re.replace_all(&data, "${1}${2}").to_string();
-                toml::from_str::<Node>(&fixed).map_err(|e| e.to_string())
+                toml::from_str::<Node>(&fix_toml_datetimes(&data)).map_err(|e| e.to_string())
             } else {
                 serde_yaml::from_str::<Node>(&data).map_err(|e| e.to_string())
             };
@@ -629,7 +623,7 @@ impl FileConfigLoader {
                     } else {
                         fs::read_to_string(&toml_path)
                             .ok()
-                            .and_then(|data| toml::from_str::<Site>(&data).ok())
+                            .and_then(|data| toml::from_str::<Site>(&fix_toml_datetimes(&data)).ok())
                     };
 
                     if let Some(site) = parsed {
@@ -715,6 +709,16 @@ pub fn get_archon_config_dir() -> Result<PathBuf, ConfigError> {
         });
         Ok(config_dir.join("archon"))
     }
+}
+
+/// Quotes unquoted TOML native datetimes so they deserialize as strings
+/// for chrono. Matches ISO 8601 datetime values that are not already quoted.
+fn fix_toml_datetimes(data: &str) -> String {
+    let re = Regex::new(
+        r#"(?m)(=\s*)(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))(\s*$)"#,
+    )
+    .unwrap();
+    re.replace_all(data, r#"${1}"${2}"${3}"#).into_owned()
 }
 
 /// Walks a directory tree looking for config files (preferring `config.yml`
