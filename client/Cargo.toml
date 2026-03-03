@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Archon GUI client - site deployment management"
 
+[[bin]]
+name = "archon"
+path = "src/main.rs"
+
 [dependencies]
 # GUI framework
 floem = "0.2.0"
